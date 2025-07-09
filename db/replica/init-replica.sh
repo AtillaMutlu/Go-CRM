@@ -1,28 +1,32 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-# PostgreSQL'in zaten çalışıp çalışmadığını kontrol et ve durdur (güvenlik önlemi)
-pg_ctl -D "$PGDATA" -m fast -w stop || true
+# PostgreSQL veri dizini
+PGDATA="/var/lib/postgresql/data"
 
-# Ana veritabanının (primary) hazır olmasını bekle. 
-# Kontrolü, varsayılan 'postgres' veritabanı üzerinden yapıyoruz.
-until pg_isready -h postgres-primary -p 5432 -U "$POSTGRES_USER" -d "postgres"
-do
-  echo "Ana veritabaninin hazir olmasi bekleniyor..."
-  sleep 2
-done
-echo "Ana veritabani hazir."
+# Primary sunucu bilgileri
+PRIMARY_HOST="crm-postgres-primary"
+PRIMARY_PORT="5432"
 
-# Replica'nın eski veri klasörünü temizle, postgresql.conf dosyasını silme
-find "$PGDATA" -mindepth 1 ! -name 'postgresql.conf' -exec rm -rf {} +
+# Eğer veri dizini zaten başlatılmışsa (PG_VERSION varsa) hiçbir şey yapma
+if [ -f "$PGDATA/PG_VERSION" ]; then
+  echo "PGDATA zaten başlatılmış, replikasyon kurulumu atlanıyor."
+  exit 0
+fi
 
-# pg_basebackup ile ana veritabanından yeni bir kopya oluştur
-echo "Ana veritabanindan kopya (backup) olusturuluyor..."
-pg_basebackup -h postgres-primary -p 5432 -U "$POSTGRES_USER" -D "$PGDATA" -Fp -Xs -R
+# Replika veri dizinini temizle (önceki veriler varsa)
+echo "Veri dizini temizleniyor..."
+rm -rf $PGDATA/*
 
-# -R bayrağı, replikasyon için gerekli olan standby.signal dosyasını ve 
-# bağlantı ayarlarını (postgresql.auto.conf) otomatik olarak oluşturur.
+# Primary sunucudan veri kopyala
+echo "Primary sunucudan veri kopyalanıyor..."
+pg_basebackup -h $PRIMARY_HOST -p $PRIMARY_PORT -U $POSTGRES_USER -Fp -Xs -v -R -D $PGDATA
 
-echo "Replikasyon kurulumu tamamlandi. Standby (replica) sunucu baslatiliyor."
+# Dosya izinlerini düzelt
+echo "Dosya izinleri düzeltiliyor..."
+chown -R postgres:postgres $PGDATA
+chmod -R 700 $PGDATA
 
-# Bu script'ten sonra, Postgres'in varsayılan Docker giriş script'i sunucuyu standby modunda başlatacaktır. 
+# Docker entrypoint'in sunucuyu başlatmasına izin ver
+echo "Replikasyon kurulumu tamamlandı."
+echo "Docker entrypoint sunucuyu başlatacak..." 

@@ -40,8 +40,8 @@ services:
     build: .
     container_name: crm-api-blue
     environment:
-      - DB_PRIMARY_URL=postgres://user:pass@postgres-primary:5432/users?sslmode=disable
-      - DB_REPLICA_URL=postgres://user:pass@postgres-replica:5432/users?sslmode=disable
+      - DB_PRIMARY_URL=postgres://user:pass@crm-postgres-primary:5432/users?sslmode=disable
+      - DB_REPLICA_URL=postgres://user:pass@crm-postgres-replica:5432/users?sslmode=disable
     depends_on:
       postgres-primary:
         condition: service_healthy
@@ -54,14 +54,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    secrets:
+      - jwt_secret
 
   # 3. Green Ortamı (API Servisi)
   api-green:
     build: .
     container_name: crm-api-green
     environment:
-      - DB_PRIMARY_URL=postgres://user:pass@postgres-primary:5432/users?sslmode=disable
-      - DB_REPLICA_URL=postgres://user:pass@postgres-replica:5432/users?sslmode=disable
+      - DB_PRIMARY_URL=postgres://user:pass@crm-postgres-primary:5432/users?sslmode=disable
+      - DB_REPLICA_URL=postgres://user:pass@crm-postgres-replica:5432/users?sslmode=disable
     depends_on:
       postgres-primary:
         condition: service_healthy
@@ -74,6 +76,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    secrets:
+      - jwt_secret
 
   # 4. Veritabanı Kümesi
   # 4a. Ana (Primary) Veritabanı (Yazma işlemleri için)

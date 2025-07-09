@@ -204,23 +204,26 @@ func main() {
 	}
 	defer dbReplica.Close()
 
-	// Bağlantıları doğrula
-	err = dbPrimary.Ping()
-	if err != nil {
-		log.Fatalf("Primary veritabanına ping atılamadı: %v", err)
-	}
-	log.Println("Primary veritabanına başarıyla bağlanıldı.")
-
-	err = dbReplica.Ping()
-	if err != nil {
-		log.Fatalf("Replica veritabanına ping atılamadı: %v", err)
-	}
-	log.Println("Replica veritabanına başarıyla bağlanıldı.")
-
-	// `docker-init.sh` script'ini tetikle
-	// Bu script, tabloları oluşturur ve başlangıç verilerini ekler
-	// Sadece primary veritabanında çalıştırılır
 	runMigrationsAndSeed(dbPrimary)
+
+	// Redis bağlantısı başlatılıyor
+	if err := common.InitRedis(); err != nil {
+		log.Fatalf("Redis bağlantısı kurulamadı: %v", err)
+	}
+	log.Println("Redis bağlantısı başarılı.")
+	common.InitRateLimiter(common.GetRedisClient())
+
+	// Kafka bağlantısı başlatılıyor
+	if err := common.InitKafka(); err != nil {
+		log.Fatalf("Kafka bağlantısı kurulamadı: %v", err)
+	}
+	log.Println("Kafka bağlantısı başarılı.")
+
+	shutdown, err := initTracer()
+	if err != nil {
+		log.Fatalf("Jaeger tracer başlatılamadı: %v", err)
+	}
+	defer shutdown()
 
 	// Handler struct'ı oluşturuluyor
 	handler := &customer.Handler{
@@ -266,25 +269,6 @@ func main() {
 	})
 	log.Println("API sunucusu 8080 portunda başlatılıyor...")
 	log.Fatal(http.ListenAndServe(":8080", c.Handler(router)))
-
-	// Redis bağlantısı başlatılıyor
-	if err := common.InitRedis(); err != nil {
-		log.Fatalf("Redis bağlantısı kurulamadı: %v", err)
-	}
-	log.Println("Redis bağlantısı başarılı.")
-	common.InitRateLimiter(common.GetRedisClient())
-
-	// Kafka bağlantısı başlatılıyor
-	if err := common.InitKafka(); err != nil {
-		log.Fatalf("Kafka bağlantısı kurulamadı: %v", err)
-	}
-	log.Println("Kafka bağlantısı başarılı.")
-
-	shutdown, err := initTracer()
-	if err != nil {
-		log.Fatalf("Jaeger tracer başlatılamadı: %v", err)
-	}
-	defer shutdown()
 }
 
 // handleLogin endpoint'i için Swaggo açıklaması
