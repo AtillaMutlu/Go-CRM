@@ -97,7 +97,7 @@ services:
     # Başlangıç komutu: Replikasyon ayarları ve WAL segmentlerinin saklanması
     command: postgres -c wal_level=replica -c hot_standby=on -c max_wal_senders=10 -c wal_keep_size=512MB
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user"]
+      test: ["CMD-SHELL", "pg_isready -U user -d users"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -121,7 +121,7 @@ services:
     networks:
       - crm_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user"]
+      test: ["CMD-SHELL", "pg_isready -U user -d users"]
       interval: 10s
       timeout: 5s
       retries: 5 

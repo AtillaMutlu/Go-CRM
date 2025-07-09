@@ -239,7 +239,7 @@ func main() {
 
 	// API rotaları
 	router.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
-		common.RateLimitMiddleware(http.HandlerFunc(handleLogin), 5, time.Minute).ServeHTTP(w, r)
+		common.RateLimitMiddleware(http.HandlerFunc(handleLogin), 1000, time.Minute).ServeHTTP(w, r)
 	}).Methods("POST")
 	router.HandleFunc("/healthz", healthzHandler).Methods("GET")
 	router.Handle("/metrics", promhttp.Handler()).Methods("GET")
@@ -251,7 +251,7 @@ func main() {
 	// Müşteri işlemleri (yeni handler fonksiyonları)
 	api.HandleFunc("/customers", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
-			common.RateLimitMiddleware(http.HandlerFunc(handler.CreateCustomerHandler), 5, time.Minute).ServeHTTP(w, r)
+			common.RateLimitMiddleware(http.HandlerFunc(handler.CreateCustomerHandler), 1000, time.Minute).ServeHTTP(w, r)
 			return
 		}
 		handler.GetCustomersHandler(w, r)
