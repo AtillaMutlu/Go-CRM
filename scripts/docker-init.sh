@@ -38,6 +38,8 @@ fi
 # Run migrations if migrate tool exists
 if command -v migrate &> /dev/null; then
     echo "📋 Migration'lar çalıştırılıyor..."
+    # Dirty state'i temizle ve migration'ı zorla
+    migrate -path /app/migrations -database "$DATABASE_URL" force 1
     migrate -path /app/migrations -database "$DATABASE_URL" up
     echo "✅ Migration'lar tamamlandı!"
 else
@@ -45,9 +47,9 @@ else
 fi
 
 # Run seeder if seed script exists
-if [ -f "/app/scripts/seed.go" ]; then
+if [ -f "/app/seeder" ]; then
     echo "🌱 Seed data oluşturuluyor..."
-    cd /app && go run scripts/seed.go
+    /app/seeder
     echo "✅ Seed data hazır!"
 fi
 

@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -29,26 +28,26 @@ func getEnv(key, defaultValue string) string {
 
 func main() {
 	var err error
-	
+
 	// Environment variables ile database konfigürasyonu
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "user")
 	dbPassword := getEnv("DB_PASSWORD", "pass")
 	dbName := getEnv("DB_NAME", "users")
-	
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", 
+
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		dbUser, dbPassword, dbHost, dbPort, dbName)
-	
+
 	log.Printf("Veritabanına bağlanılıyor: %s:%s/%s", dbHost, dbPort, dbName)
-	
+
 	// PostgreSQL bağlantısı
 	db, err = sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("DB bağlantı hatası:", err)
 	}
 	defer db.Close()
-	
+
 	// Bağlantıyı test et
 	if err = db.Ping(); err != nil {
 		log.Fatal("DB ping hatası:", err)
@@ -62,7 +61,7 @@ func main() {
 
 	// Port konfigürasyonu
 	port := getEnv("PORT", "8085")
-	
+
 	fmt.Printf("API servis %s portunda başlatıldı...\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
