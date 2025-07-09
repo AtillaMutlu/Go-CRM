@@ -1,77 +1,64 @@
-# Go Mikroservis Monorepo
+# Go Mikroservis Monorepo - CRM Örneği
 
-Bu repo, üretim-hazır Go tabanlı mikroservis iskeleti sunar. (CRM, stok yönetimi vb. için )
+Bu repo, üretim-hazır Go tabanlı bir mikroservis iskeleti ve bu iskelet üzerine inşa edilmiş, Docker ile çalışan basit bir CRM uygulaması sunar.
+
+## Teknolojiler
+- **Backend:** Go
+- **Frontend:** HTML, CSS, Vanilla JavaScript (ES6 Modülleri)
+- **Veritabanı:** PostgreSQL
+- **API Tipi:** RESTful
+- **Containerization:** Docker & Docker Compose
+- **Web Server:** Nginx (Frontend sunumu ve API proxy için)
 
 ## Klasör Yapısı
 
-- `cmd/`           : Her mikroservis için ana uygulama giriş noktası
-- `pkg/`           : Ortak kütüphaneler ve handler fonksiyonları (örn: pkg/gateway)
-- `deploy/`        : Dağıtım ve K8s manifest dosyaları
-- `charts/`        : Helm chart'ları
-- `configs/`       : Konfigürasyon dosyaları
-- `proto/`         : Protobuf tanımları
-- `migrations/`    : DB migration dosyaları (SQL up/down)
-- `scripts/`       : Yardımcı scriptler (örn: seeder)
-- `docs/`          : Dokümantasyon
-- `tests/`         : Testler (unit, integration)
-- `build/`         : Derlenmiş binary'ler
-- `public/`        : Basit Bootstrap + JS frontend
+- `cmd/`           : Her mikroservis için ana uygulama giriş noktası (`api`, `gateway` vb.)
+- `pkg/`           : Servisler tarafından paylaşılan ortak kütüphaneler.
+- `public/`        : Dockerize edilmiş, Nginx tarafından sunulan frontend dosyaları.
+- `migrations/`    : `golang-migrate` uyumlu veritabanı şema dosyaları.
+- `scripts/`       : Yardımcı scriptler (`docker-init.sh`, `seed.go`).
+- `proto/`         : Protobuf tanımları.
+- `tests/`         : Unit, integration ve E2E testleri.
+- `docker-compose.yml`: Tüm servisleri (api, gateway, postgres, frontend) ayağa kaldıran ana dosya.
+- `Dockerfile`     : Go servislerini derleyen ve çalıştıran dosya.
+- `nginx.conf`     : Frontend'i sunan ve API gateway'e istekleri yönlendiren Nginx konfigürasyonu.
+- `Makefile`       : Proje yönetimini kolaylaştıran komutlar (`docker-up`, `docker-down`).
 
-## Handler ve Test Yapısı
+## Hızlı Başlangıç (Docker ile)
 
-- Tüm HTTP handler fonksiyonları `pkg/` altında modül bazlı tutulur (örn: `pkg/gateway/handlers.go`).
-- Testler doğrudan bu fonksiyonları import ederek çalışır.
+Projenin tamamını (Backend, Frontend, Veritabanı) tek bir komutla ayağa kaldırabilirsiniz.
 
-## Migration Yönetimi (Best Practice)
+**Gereksinimler:**
+- Docker
+- Docker Compose
+- `make` (Windows için `choco install make` veya [buradan](http://gnuwin32.sourceforge.net/packages/make.htm) kurulabilir)
 
-- Migration dosyalarını `migrations/` klasöründe, sıralı ve up/down SQL olarak tut.
-- Migration işlemleri için [golang-migrate](https://github.com/golang-migrate/migrate) CLI kullanılır.
-- Migration'ı uygulamak için:
-
+### 1. Sistemi Başlatma
+Proje ana dizinindeyken terminalde aşağıdaki komutu çalıştırın:
 ```sh
-make migrate-up
+make docker-up
 ```
-- Geri almak için:
+Bu komut arka planda şunları yapar:
+- Gerekli Docker imajlarını indirir ve oluşturur (Go servisleri derlenir).
+- PostgreSQL, API, Gateway ve Frontend servislerini başlatır.
+- Konteyner ilk defa başlatıldığında veritabanı tablolarını (`users`, `customers`, `contacts`) otomatik olarak oluşturur (migration).
+- `users` tablosuna örnek bir kullanıcı ekler (seeding).
+
+### 2. Uygulamayı Kullanma
+Tarayıcınızda **http://localhost:3000** adresini açın.
+
+- **Giriş Bilgileri:**
+  - **E-posta:** `demo@example.com`
+  - **Şifre:** `demo123`
+
+Giriş yaptıktan sonra müşteri ekleyebilir, listeleyebilir ve müşterilere iletişim notları ekleyebilirsiniz.
+
+### 3. Sistemi Durdurma
+Uygulamayı kapatmak için terminalde aşağıdaki komutu çalıştırın:
 ```sh
-make migrate-down
+make docker-down
 ```
-- Migration'lar kodla versionlanır, takımda herkes aynı şemayı kullanır.
-- Migration'ı uygulama başında veya CI/CD pipeline'ında otomatik çalıştırabilirsin.
+Bu komut, çalışan tüm konteynerleri durdurur ve siler. Veritabanı verileriniz bir Docker Volume'da saklandığı için kaybolmaz.
 
-## Frontend + Backend Entegrasyonu (Örnek Mini CRM)
-
-- `public/` altında Bootstrap + vanilla JS ile login, dashboard, müşteri CRUD ve iletişim listesi arayüzü hazır.
-- `cmd/api/main.go` altında REST API (login, müşteri CRUD, iletişim) gerçek PostgreSQL ile çalışır.
-- JWT ile login, tüm işlemler güvenli.
-- Migration ve seeder ile tablo ve örnek kullanıcı otomatik oluşturulur.
-
-### Hızlı Başlangıç (Tüm Akış)
-
-```sh
-# 1. PostgreSQL başlat
-make migrate-up
-# veya
-# docker compose -f deploy/docker-compose.postgres.yml up
-
-# 2. Migration ve seeder
-make migrate-up
-# Seeder ile örnek kullanıcı ekle
-# (email: demo@example.com, şifre: demo123)
-go run scripts/seed.go
-
-# 3. API'yi başlat
-make run SERVICE=api
-# veya
-go run cmd/api/main.go
-
-# 4. Frontend'i aç (public/index.html)
-# Login ol, müşteri CRUD ve iletişim işlemlerini test et
-```
-
-## Gereksinimler
-- Go 1.22+
-- Docker 25+
-- [golang-migrate](https://github.com/golang-migrate/migrate) (migration için)
-
-## Katkı
-PR ve issue açabilirsiniz. Her modül için ADR (docs/adr) ekleyin. 
+## Migration Yönetimi
+Migration'lar (veritabanı şeması değişiklikleri) artık `make docker-up` komutu ile otomatik olarak uygulanmaktadır. Manuel bir işlem yapmanıza gerek yoktur. Yeni bir migration eklemek için `migrations/` dizinine `[versiyon]_adı.up.sql` formatında bir dosya eklemeniz yeterlidir. 

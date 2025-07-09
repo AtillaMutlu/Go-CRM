@@ -1,52 +1,50 @@
-# Mikroservis Örnekleri ve Geliştirilecekler
+# Proje Durumu ve Geliştirilecekler
 
-## Yapılanlar
+## ✅ Yapılanlar
 
-- **Gateway Servisi**
-  - JWT doğrulama (Keycloak JWKS ile)
-  - Rate limit (IP başına 10 istek/dk)
-  - IP allowlist (127.0.0.1, ::1)
+- **Mimari ve Altyapı**
+  - Docker Compose ile tüm projenin (API, Gateway, Frontend, DB) tek komutla (`make docker-up`) çalıştırılması.
+  - Otomatik veritabanı migration ve seeder mekanizması.
+  - Nginx ile frontend sunumu ve API Gateway için reverse proxy.
+  - Go modül yapısının düzeltilmesi (`Go-CRM`).
 
-- **Auth Servisi**
-  - Healthz ve info endpointleri
+- **Backend (API)**
+  - `users`, `customers` ve `contacts` tabloları için veritabanı şemaları.
+  - Müşteri (Customer) listeleme ve ekleme endpoint'leri.
+  - İletişim (Contact) listeleme ve ekleme endpoint'leri.
+  - Basit JWT tabanlı kullanıcı girişi (`/api/login`).
 
-- **User Servisi (gRPC)**
-  - Protobuf tanımı ve Go kodu
-  - Temel gRPC server iskeleti
+- **Frontend**
+  - Vanilla JS ile kullanıcı giriş ekranı.
+  - Müşteri ve iletişim kayıtlarını listeleyen, sekmeli dashboard arayüzü.
+  - Müşteri ekleme ve düzenleme formu (modal).
+  - Müşterilere iletişim kaydı ekleme formu (modal).
+  - JavaScript modül yapısının düzeltilmesi (`type="module"`).
+  
+- **Test**
+  - Unit ve entegrasyon testleri için temel yapı (`/tests` klasörü).
+  - `Makefile` üzerinden testleri çalıştırmak için komutlar (`test-unit`, `test-integration`).
 
-- **PostgreSQL**
-  - Primary ve read-replica docker-compose
+## 🛠️ Sırada Geliştirilecekler
 
-- **Kafka**
-  - Kafka + Zookeeper docker-compose
+- **Kimlik Doğrulama (Authentication)**
+  - Gateway'de devre dışı bırakılan JWT/JWKS doğrulamasının düzgün bir şekilde yeniden etkinleştirilmesi.
+  - Keycloak servisinin `docker-compose.yml`'e eklenmesi ve entegrasyonu.
+  - Login işleminde kullanılan `demo123` gibi geçici şifre kontrolünün, `bcrypt` ile hash'lenmiş güvenli yapıya dönüştürülmesi.
 
-- **Notification Servisi**
-  - Kafka'dan notification.command topic'ini dinliyor
-  - Gelen mesajı logluyor
-
-- **Audit Servisi**
-  - Kafka'dan audit.raw topic'ini dinliyor
-  - Mesajı immudb'ye append ediyor
-
-## Geliştirilecekler (örnekler)
-
-- **Dead-letter queue (notification.dlq)**
-  - Başarısız bildirimler için ayrı Kafka kuyruğu
-
-- **Retry policy (exponential backoff, max 5)**
-  - Bildirim gönderimi başarısız olursa otomatik tekrar deneme
+- **API ve Fonksiyonellik**
+  - Müşteri ve İletişimler için **Güncelleme (Update)** ve **Silme (Delete)** operasyonlarının tamamlanması.
+  - API'ye daha detaylı hata yönetimi ve loglama eklenmesi.
+  - API istekleri için "validation" (doğrulama) katmanı eklenmesi (örn: e-posta formatı kontrolü).
 
 - **Testler**
-  - Unit ve integration test örnekleri
+  - Mevcut test yapısının, eklenen yeni özellikler (Customer ve Contact CRUD) için genişletilmesi.
+  - Uçtan uca (E2E) testlerin yazılması.
+  - Test kapsamını (coverage) artırma.
 
-- **SMTP, SMS, WebSocket adapterleri**
-  - Notification servisinde farklı kanal entegrasyonları
-
-- **Audit için Merkle root S3'e dump**
-  - immudb Merkle root'unu günlük olarak S3'e kaydetme
+- **Kod Kalitesi ve Altyapı**
+  - `go mod tidy` komutunun `git`'e ihtiyaç duymadan çalışmasının sağlanması veya `git`'in Docker imajına eklenmesi.
+  - `Dockerfile`'ların daha verimli hale getirilmesi (multi-stage build optimizasyonu).
 
 - **Observability**
-  - Prometheus, Grafana, Jaeger entegrasyonu
-
-- **Helm chart, Argo Rollouts**
-  - K8s deployment ve canary örnekleri 
+  - Prometheus, Grafana, Jaeger gibi araçlarla metrik, log ve trace toplama altyapısının kurulması. 
