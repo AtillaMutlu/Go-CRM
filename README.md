@@ -43,59 +43,65 @@ Bu proje, kurumsal seviyede, ölçeklenebilir ve sürdürülebilir Go tabanlı b
 
 ## Mimari Akış (Özet)
 
-Aşağıda, projenin kurumsal mimarisini ve servisler arası veri akışını gösteren profesyonel bir şema yer almaktadır. Tüm ana bileşenler, altyapı servisleri ve veri yolları diyagramda detaylı şekilde gösterilmiştir.
+Aşağıda, Blue/Green deployment, Nginx load balancer, primary/replica PostgreSQL, tüm mikroservisler ve altyapı servislerini kapsayan profesyonel mimari şema yer almaktadır. Bu şema, canlı (Blue) ve yeni versiyon (Green) ortamlarının paralel çalışmasını, Nginx’in trafiği nasıl yönlendirdiğini ve tüm veri yollarını detaylı şekilde gösterir.
 
 ```mermaid
 flowchart TD
     Kullanicilar([Kullanıcı Tarayıcısı])
     Nginx["Nginx (Load Balancer / Reverse Proxy)"]
-    Gateway["API Gateway (Kimlik Doğrulama, Rate Limiting, Loglama, İzleme)"]
-    subgraph Mikroservisler
-        AuthSvc["Auth Servisi"]
-        UserSvc["User Servisi"]
-        NotificationSvc["Notification Servisi"]
-        AuditSvc["Audit Servisi"]
-        CrmApi["CRM API Servisi"]
+    subgraph BlueGreen["Blue/Green Deployment"]
+        GatewayBlue["API Gateway (Blue)"]
+        GatewayGreen["API Gateway (Green)"]
+        AuthBlue["Auth Servisi (Blue)"]
+        UserBlue["User Servisi (Blue)"]
+        CrmBlue["CRM API (Blue)"]
+        AuthGreen["Auth Servisi (Green)"]
+        UserGreen["User Servisi (Green)"]
+        CrmGreen["CRM API (Green)"]
     end
-    subgraph Altyapı
-        PostgresPrimary["PostgreSQL (Primary)"]
-        PostgresReplica["PostgreSQL (Replica)"]
-        Redis["Redis (Cache & Rate Limiting)"]
-        Kafka["Kafka (Event Streaming)"]
-        Prometheus["Prometheus (Metrik İzleme)"]
-        Jaeger["Jaeger (Tracing)"]
+    subgraph DBCluster["PostgreSQL DB Cluster"]
+        PrimaryDB["Primary DB"]
+        ReplicaDB["Replica DB"]
     end
+    Redis["Redis (Cache & Rate Limiting)"]
+    Kafka["Kafka (Event Streaming)"]
+    Prometheus["Prometheus (Metrik İzleme)"]
+    Jaeger["Jaeger (Tracing)"]
 
-    Kullanicilar -->|HTTP/HTTPS| Nginx
-    Nginx --> Gateway
-    Gateway --> AuthSvc
-    Gateway --> UserSvc
-    Gateway --> NotificationSvc
-    Gateway --> AuditSvc
-    Gateway --> CrmApi
-    CrmApi -->|CRUD| PostgresPrimary
-    CrmApi -->|Okuma| PostgresReplica
-    Gateway --> Redis
-    CrmApi --> Kafka
-    Gateway --> Prometheus
-    Gateway --> Jaeger
-    CrmApi --> Prometheus
-    CrmApi --> Jaeger
-    AuthSvc --> Redis
-    UserSvc --> Redis
-    NotificationSvc --> Kafka
-    AuditSvc --> Kafka
-    PostgresPrimary <--> PostgresReplica
-    Kafka --> AuditSvc
-    Kafka --> NotificationSvc
-    Kafka --> CrmApi
-    
-    classDef infra fill:#f9f9f9,stroke:#bbb,stroke-width:1px;
-    classDef svc fill:#e3f2fd,stroke:#2196f3,stroke-width:1px;
+    Kullanicilar --> Nginx
+    Nginx --> GatewayBlue
+    Nginx --> GatewayGreen
+    GatewayBlue --> AuthBlue
+    GatewayBlue --> UserBlue
+    GatewayBlue --> CrmBlue
+    GatewayGreen --> AuthGreen
+    GatewayGreen --> UserGreen
+    GatewayGreen --> CrmGreen
+    CrmBlue --> PrimaryDB
+    CrmBlue --> ReplicaDB
+    CrmGreen --> PrimaryDB
+    CrmGreen --> ReplicaDB
+    GatewayBlue --> Redis
+    GatewayGreen --> Redis
+    CrmBlue --> Kafka
+    CrmGreen --> Kafka
+    GatewayBlue --> Prometheus
+    GatewayGreen --> Prometheus
+    GatewayBlue --> Jaeger
+    GatewayGreen --> Jaeger
+    CrmBlue --> Prometheus
+    CrmGreen --> Prometheus
+    CrmBlue --> Jaeger
+    CrmGreen --> Jaeger
+    PrimaryDB <--> ReplicaDB
+
+    classDef blue fill:#e3f2fd,stroke:#2196f3,stroke-width:1px;
+    classDef green fill:#e8f5e9,stroke:#43a047,stroke-width:1px;
     classDef db fill:#fff3e0,stroke:#fb8c00,stroke-width:1px;
-    class Nginx,Gateway svc;
-    class AuthSvc,UserSvc,NotificationSvc,AuditSvc,CrmApi svc;
-    class PostgresPrimary,PostgresReplica db;
+    classDef infra fill:#f9f9f9,stroke:#bbb,stroke-width:1px;
+    class GatewayBlue,AuthBlue,UserBlue,CrmBlue blue;
+    class GatewayGreen,AuthGreen,UserGreen,CrmGreen green;
+    class PrimaryDB,ReplicaDB db;
     class Redis,Kafka,Prometheus,Jaeger infra;
 ```
 
