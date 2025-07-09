@@ -1,0 +1,37 @@
+# Blue Upstream - Blue ortamındaki API servis(ler)ini işaret eder
+upstream blue_backend {
+    # Docker'ın kendi DNS'i üzerinden servis adıyla erişim
+    server api-blue:8080;
+}
+
+# Green Upstream - Green ortamındaki API servis(ler)ini işaret eder
+upstream green_backend {
+    server api-green:8080;
+}
+
+server {
+    listen 80;
+
+    # ---- Frontend Sunumu ----
+    # Gelen isteklerin kök dizini
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri /index.html;
+    }
+
+    # ---- API Yönlendirme (Reverse Proxy) ----
+    # /api/ ile başlayan istekler için
+    location /api/ {
+        # Bu proxy_pass direktifi, Docker'da envsubst ile
+        # başlatma sırasında dinamik olarak ayarlanacak olan
+        # $ACTIVE_BACKEND değişkenini kullanır.
+        # Örnek: http://blue_backend veya http://green_backend
+        proxy_pass http://${ACTIVE_BACKEND};
+        
+        # Gerekli header'ların ayarlanması
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

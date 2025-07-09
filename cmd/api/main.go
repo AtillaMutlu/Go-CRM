@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,12 +11,31 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/cors"
+	"golang.org/x/crypto/bcrypt"
+
+	// Yeni customer handler importu
+	"Go-CRM/pkg/common"
+	"Go-CRM/pkg/customer"
+
+	"github.com/sirupsen/logrus"
+	gootel "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
-var jwtSecret = []byte("supersecret") // Gerçek projede env'den al
+// İki veritabanı bağlantısını tutacak global değişkenler
+var dbPrimary *sql.DB
+var dbReplica *sql.DB
 
-var db *sql.DB
+var jwtKey []byte
 
 // Environment variable helper fonksiyonu
 func getEnv(key, defaultValue string) string {
@@ -26,273 +45,326 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func main() {
-	var err error
-
-	// Environment variables ile database konfigürasyonu
-	dbHost := getEnv("DB_HOST", "localhost")
-	dbPort := getEnv("DB_PORT", "5432")
-	dbUser := getEnv("DB_USER", "user")
-	dbPassword := getEnv("DB_PASSWORD", "pass")
-	dbName := getEnv("DB_NAME", "users")
-
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		dbUser, dbPassword, dbHost, dbPort, dbName)
-
-	log.Printf("Veritabanına bağlanılıyor: %s:%s/%s", dbHost, dbPort, dbName)
-
-	// PostgreSQL bağlantısı
-	db, err = sql.Open("postgres", dbURL)
-	if err != nil {
-		log.Fatal("DB bağlantı hatası:", err)
-	}
-	defer db.Close()
-
-	// Bağlantıyı test et
-	if err = db.Ping(); err != nil {
-		log.Fatal("DB ping hatası:", err)
-	}
-	log.Println("Veritabanı bağlantısı başarılı!")
-
-	http.HandleFunc("/api/login", loginHandler)
-	http.HandleFunc("/api/customers", jwtAuth(customersHandler))
-	http.HandleFunc("/api/customers/", jwtAuth(customerDetailHandler))
-	http.HandleFunc("/api/contacts", jwtAuth(contactsHandler))
-
-	// Port konfigürasyonu
-	port := getEnv("PORT", "8085")
-
-	fmt.Printf("API servis %s portunda başlatıldı...\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+type User struct {
+	ID       int    `json:"id"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
-// JWT doğrulama middleware
-func jwtAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		header := r.Header.Get("Authorization")
-		if header == "" || !strings.HasPrefix(header, "Bearer ") {
-			http.Error(w, "Yetkisiz: Bearer token gerekli", http.StatusUnauthorized)
-			return
-		}
-		tokenStr := strings.TrimPrefix(header, "Bearer ")
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-			return jwtSecret, nil
-		})
-		if err != nil || !token.Valid {
-			http.Error(w, "Yetkisiz: JWT geçersiz", http.StatusUnauthorized)
-			return
-		}
-		next(w, r)
-	}
-}
-
-// /api/login (POST)
-func loginHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Yöntem desteklenmiyor", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Geçersiz istek", http.StatusBadRequest)
-		return
-	}
-	var id int
-	var email, passwordHash string
-	err := db.QueryRow("SELECT id, email, password_hash FROM users WHERE email=$1", req.Email).Scan(&id, &email, &passwordHash)
-	if err != nil {
-		http.Error(w, "Kullanıcı bulunamadı", http.StatusUnauthorized)
-		return
-	}
-	// Demo için şifre hash kontrolü yok, gerçek projede bcrypt kullan!
-	if req.Password != "demo123" && req.Password != passwordHash {
-		http.Error(w, "Şifre hatalı", http.StatusUnauthorized)
-		return
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"email": email,
-		"exp":   time.Now().Add(24 * time.Hour).Unix(),
-	})
-	tokenStr, _ := token.SignedString(jwtSecret)
-	json.NewEncoder(w).Encode(map[string]string{"token": tokenStr})
+type Claims struct {
+	Email string `json:"email"`
+	jwt.RegisteredClaims
 }
 
 // Müşteri struct'ı
 type Customer struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Phone     string    `json:"phone"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// /api/customers (GET, POST)
-func customersHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case "GET":
-		getCustomers(w, r)
-	case "POST":
-		createCustomer(w, r)
-	default:
-		http.Error(w, "Desteklenmeyen Metot", http.StatusMethodNotAllowed)
-	}
-}
-
-// /api/customers/{id} (PUT, DELETE)
-func customerDetailHandler(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/customers/")
-	if id == "" {
-		http.Error(w, "ID gerekli", http.StatusBadRequest)
-		return
-	}
-	if r.Method == http.MethodPut {
-		var c Customer
-		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-			http.Error(w, "Geçersiz veri", http.StatusBadRequest)
-			return
-		}
-		_, err := db.Exec("UPDATE customers SET name=$1, email=$2, phone=$3 WHERE id=$4", c.Name, c.Email, c.Phone, id)
-		if err != nil {
-			http.Error(w, "DB güncelleme hatası", http.StatusInternalServerError)
-			return
-		}
-		c.ID = atoi(id)
-		json.NewEncoder(w).Encode(c)
-		return
-	}
-	if r.Method == http.MethodDelete {
-		_, err := db.Exec("DELETE FROM customers WHERE id=$1", id)
-		if err != nil {
-			http.Error(w, "DB silme hatası", http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	http.Error(w, "Yöntem desteklenmiyor", http.StatusMethodNotAllowed)
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Phone string `json:"phone"`
 }
 
 // İletişim struct'ı
 type Contact struct {
-	ID           int    `json:"id"`
-	CustomerName string `json:"customer_name"`
-	Message      string `json:"message"`
-	Date         string `json:"date"`
+	ID         int    `json:"id"`
+	CustomerID int    `json:"customer_id"`
+	Content    string `json:"content"`
+	CreatedAt  string `json:"created_at"`
 }
 
-// /api/contacts (GET)
-func contactsHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case "GET":
-		getContacts(w, r)
-	case "POST":
-		createContact(w, r)
-	default:
-		http.Error(w, "Yöntem desteklenmiyor", http.StatusMethodNotAllowed)
-	}
-}
-
-func getContacts(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query(`SELECT c.id, cu.name, c.message, to_char(c.created_at, 'YYYY-MM-DD') FROM contacts c JOIN customers cu ON c.customer_id = cu.id ORDER BY c.id DESC`)
-	if err != nil {
-		http.Error(w, "DB hatası", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-	var contacts []Contact
-	for rows.Next() {
-		var c Contact
-		if err := rows.Scan(&c.ID, &c.CustomerName, &c.Message, &c.Date); err == nil {
-			contacts = append(contacts, c)
-		}
-	}
-	json.NewEncoder(w).Encode(contacts)
-}
-
-func createContact(w http.ResponseWriter, r *http.Request) {
-	var contact struct {
-		CustomerID int    `json:"customer_id"`
-		Message    string `json:"message"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&contact); err != nil {
-		http.Error(w, "Geçersiz istek verisi", http.StatusBadRequest)
-		return
-	}
-
-	if contact.CustomerID == 0 || contact.Message == "" {
-		http.Error(w, "Müşteri ID ve mesaj alanları zorunludur", http.StatusBadRequest)
-		return
-	}
-
-	var newContact Contact
-	err := db.QueryRow(
-		`INSERT INTO contacts (customer_id, message) VALUES ($1, $2) RETURNING id, (SELECT name FROM customers WHERE id = $1), message, to_char(created_at, 'YYYY-MM-DD')`,
-		contact.CustomerID, contact.Message,
-	).Scan(&newContact.ID, &newContact.CustomerName, &newContact.Message, &newContact.Date)
-
-	if err != nil {
-		log.Printf("DB contact ekleme hatasi: %v", err)
-		http.Error(w, "DB Hatasi", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newContact)
-}
-
-func getCustomers(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query("SELECT id, name, email, phone, created_at FROM customers ORDER BY id DESC")
-	if err != nil {
-		log.Printf("DB sorgu hatasi: %v", err)
-		http.Error(w, "DB Hatasi", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	customers := []Customer{}
-	for rows.Next() {
-		var c Customer
-		if err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.CreatedAt); err != nil {
-			log.Printf("DB satir okuma hatasi: %v", err)
-			http.Error(w, "DB Hatasi", http.StatusInternalServerError)
+// JWT doğrulama middleware'i
+func jwtAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			http.Error(w, "Yetkilendirme gerekli", http.StatusUnauthorized)
 			return
 		}
-		customers = append(customers, c)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(customers)
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			return jwtKey, nil
+		})
+		if err != nil || !token.Valid {
+			http.Error(w, "Geçersiz veya süresi dolmuş token", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
-func createCustomer(w http.ResponseWriter, r *http.Request) {
-	var c Customer
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		http.Error(w, "Gecersiz istek", http.StatusBadRequest)
-		return
+// Request-id logging middleware'i
+func requestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID := r.Header.Get("X-Request-Id")
+		if reqID == "" {
+			reqID = uuid.New().String()
+		}
+		w.Header().Set("X-Request-Id", reqID)
+		ctx := context.WithValue(r.Context(), "request-id", reqID)
+		// Trace-id propagation (OpenTelemetry varsa)
+		traceID := ""
+		if span := oteltrace.SpanFromContext(ctx); span != nil && span.SpanContext().IsValid() {
+			traceID = span.SpanContext().TraceID().String()
+		}
+		ctx = context.WithValue(ctx, "trace-id", traceID)
+		common.Logger.WithFields(logrus.Fields{
+			"request_id": reqID,
+			"trace_id":   traceID,
+			"method":     r.Method,
+			"path":       r.URL.Path,
+		}).Info("request")
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func healthzHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
+}
+
+func initTracer() (func(), error) {
+	endpoint := os.Getenv("JAEGER_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "http://localhost:14268/api/traces"
 	}
-
-	err := db.QueryRow(
-		"INSERT INTO customers (name, email, phone) VALUES ($1, $2, $3) RETURNING id, created_at",
-		c.Name, c.Email, c.Phone,
-	).Scan(&c.ID, &c.CreatedAt)
-
+	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(endpoint)))
 	if err != nil {
-		log.Printf("DB ekleme hatasi: %v", err)
-		http.Error(w, "DB Hatasi", http.StatusInternalServerError)
+		return nil, err
+	}
+	tp := trace.NewTracerProvider(
+		trace.WithBatcher(exp),
+		trace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName("go-crm-api"),
+		)),
+	)
+	gootel.SetTracerProvider(tp)
+	return func() { _ = tp.Shutdown(context.Background()) }, nil
+}
+
+func main() {
+	common.InitLogger()
+	logrus.SetFormatter(&logrus.JSONFormatter{})
+	logrus.SetOutput(os.Stdout)
+	logrus.SetLevel(logrus.InfoLevel)
+	var err error
+	// Ortam değişkenlerinden veritabanı URL'lerini al
+	primaryURL := os.Getenv("DB_PRIMARY_URL")
+	replicaURL := os.Getenv("DB_REPLICA_URL")
+
+	if primaryURL == "" || replicaURL == "" {
+		log.Fatal("DB_PRIMARY_URL ve DB_REPLICA_URL ortam değişkenleri ayarlanmalı!")
+	}
+
+	// Primary veritabanına bağlan (Yazma işlemleri için)
+	dbPrimary, err = sql.Open("postgres", primaryURL)
+	if err != nil {
+		log.Fatalf("Primary veritabanına bağlanılamadı: %v", err)
+	}
+	defer dbPrimary.Close()
+
+	// Replica veritabanına bağlan (Okuma işlemleri için)
+	dbReplica, err = sql.Open("postgres", replicaURL)
+	if err != nil {
+		log.Fatalf("Replica veritabanına bağlanılamadı: %v", err)
+	}
+	defer dbReplica.Close()
+
+	// Bağlantıları doğrula
+	err = dbPrimary.Ping()
+	if err != nil {
+		log.Fatalf("Primary veritabanına ping atılamadı: %v", err)
+	}
+	log.Println("Primary veritabanına başarıyla bağlanıldı.")
+
+	err = dbReplica.Ping()
+	if err != nil {
+		log.Fatalf("Replica veritabanına ping atılamadı: %v", err)
+	}
+	log.Println("Replica veritabanına başarıyla bağlanıldı.")
+
+	// `docker-init.sh` script'ini tetikle
+	// Bu script, tabloları oluşturur ve başlangıç verilerini ekler
+	// Sadece primary veritabanında çalıştırılır
+	runMigrationsAndSeed(dbPrimary)
+
+	// Handler struct'ı oluşturuluyor
+	handler := &customer.Handler{
+		DBPrimary: dbPrimary,
+		DBReplica: dbReplica,
+	}
+
+	router := mux.NewRouter()
+	router.Use(requestIDMiddleware)
+
+	// API rotaları
+	router.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		common.RateLimitMiddleware(http.HandlerFunc(handleLogin), 5, time.Minute).ServeHTTP(w, r)
+	}).Methods("POST")
+	router.HandleFunc("/healthz", healthzHandler).Methods("GET")
+	router.Handle("/metrics", promhttp.Handler()).Methods("GET")
+
+	// JWT korumalı alt router
+	api := router.PathPrefix("/api").Subrouter()
+	api.Use(jwtAuthMiddleware)
+
+	// Müşteri işlemleri (yeni handler fonksiyonları)
+	api.HandleFunc("/customers", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			common.RateLimitMiddleware(http.HandlerFunc(handler.CreateCustomerHandler), 5, time.Minute).ServeHTTP(w, r)
+			return
+		}
+		handler.GetCustomersHandler(w, r)
+	}).Methods("GET", "POST")
+
+	// İletişim kayıtları işlemleri (yeni handler fonksiyonları)
+	api.HandleFunc("/contacts/{customerId}", handler.GetContactsHandler).Methods("GET")
+	api.HandleFunc("/contacts", handler.CreateContactHandler).Methods("POST")
+
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Request-Id"},
+		AllowCredentials: true,
+	})
+	log.Println("API sunucusu 8080 portunda başlatılıyor...")
+	log.Fatal(http.ListenAndServe(":8080", c.Handler(router)))
+
+	// Redis bağlantısı başlatılıyor
+	if err := common.InitRedis(); err != nil {
+		log.Fatalf("Redis bağlantısı kurulamadı: %v", err)
+	}
+	log.Println("Redis bağlantısı başarılı.")
+	common.InitRateLimiter(common.GetRedisClient())
+
+	// Kafka bağlantısı başlatılıyor
+	if err := common.InitKafka(); err != nil {
+		log.Fatalf("Kafka bağlantısı kurulamadı: %v", err)
+	}
+	log.Println("Kafka bağlantısı başarılı.")
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET ortam değişkeni ayarlanmalı!")
+	}
+	jwtKey = []byte(jwtSecret)
+
+	shutdown, err := initTracer()
+	if err != nil {
+		log.Fatalf("Jaeger tracer başlatılamadı: %v", err)
+	}
+	defer shutdown()
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	var creds User
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Geçersiz istek gövdesi", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(c)
+	var storedUser User
+	// Login işlemi kritik bir okuma olduğu için Primary'den yapılabilir,
+	// veya anlık replikasyon gecikmesini kabul edip Replica'dan da yapılabilir.
+	// Güvenilirlik için Primary'den okuyoruz.
+	err := dbPrimary.QueryRow("SELECT id, password FROM users WHERE email=$1", creds.Email).Scan(&storedUser.ID, &storedUser.Password)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Kullanıcı adı veya şifre hatalı", http.StatusUnauthorized)
+		} else {
+			http.Error(w, "Sunucu hatası", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(storedUser.Password), []byte(creds.Password)); err != nil {
+		http.Error(w, "Kullanıcı adı veya şifre hatalı", http.StatusUnauthorized)
+		return
+	}
+
+	expirationTime := time.Now().Add(24 * time.Hour)
+	claims := &Claims{
+		Email: creds.Email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		http.Error(w, "Token oluşturulamadı", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 }
 
-func atoi(s string) int {
-	n, _ := fmt.Sscanf(s, "%d", new(int))
-	return n
+func hashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bytes), err
+}
+
+// docker-init.sh script'i ve seeder.go'nun görevini üstlenen fonksiyon
+// Sadece uygulama ilk ayağa kalktığında çalıştırılmalı.
+func runMigrationsAndSeed(db *sql.DB) {
+	log.Println("Migration'lar ve seeder kontrol ediliyor...")
+
+	// 1. Tabloların var olup olmadığını kontrol et
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')").Scan(&exists)
+	if err != nil {
+		log.Fatalf("Tablo varlığı kontrol edilemedi: %v", err)
+	}
+
+	// Eğer 'users' tablosu zaten varsa, migration ve seed yapıldığını varsay ve çık.
+	if exists {
+		log.Println("Tablolar zaten mevcut. Migration ve seed atlanıyor.")
+		return
+	}
+
+	log.Println("'users' tablosu bulunamadı. Migration'lar çalıştırılıyor...")
+
+	// 2. Migration'ları çalıştır
+	migrations := []string{
+		`CREATE TABLE users (
+			id SERIAL PRIMARY KEY,
+			email VARCHAR(255) UNIQUE NOT NULL,
+			password VARCHAR(255) NOT NULL
+		);`,
+		`CREATE TABLE customers (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			email VARCHAR(255),
+			phone VARCHAR(50)
+		);`,
+		`CREATE TABLE contacts (
+			id SERIAL PRIMARY KEY,
+			customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+			content TEXT NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+	}
+
+	for _, m := range migrations {
+		if _, err := db.Exec(m); err != nil {
+			log.Fatalf("Migration başarısız: %v", err)
+		}
+	}
+	log.Println("Tüm migration'lar başarıyla tamamlandı.")
+
+	// 3. Seeder'ı çalıştır
+	log.Println("Başlangıç verisi (seed) ekleniyor...")
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("demo123"), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatalf("Şifre hash'lenemedi: %v", err)
+	}
+
+	email := "demo@example.com"
+	_, err = db.Exec("INSERT INTO users (email, password) VALUES ($1, $2)", email, string(hashedPassword))
+	if err != nil {
+		log.Fatalf("Örnek kullanıcı eklenemedi: %v", err)
+	}
+	log.Println("Örnek kullanıcı başarıyla eklendi.")
 }

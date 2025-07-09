@@ -1,14 +1,5 @@
-DB_HOST=your-production-db
-DB_PASSWORD=secure-password
-JWT_SECRET=your-super-secret-key
-ENVIRONMENT=production
- 
 # Blue/Green Deployment için aktif ortamı belirler.
 # Geçerli değerler: "blue" veya "green".
 # Bu değişken, docker-compose.yml tarafından okunarak Nginx'in trafiği
 # doğru API servisine (api-blue veya api-green) yönlendirmesini sağlar.
 ACTIVE_COLOR=blue 
-
-
-# Production build
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build

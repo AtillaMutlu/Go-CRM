@@ -1,41 +1,41 @@
-# --- Build aşaması ---
+# --- 1. Aşama: Build ---
+# Go'nun resmi imajını temel alarak bir build ortamı oluştur
+# go.mod ile uyumlu olacak şekilde Go versiyonunu 1.24'e yükseltiyoruz.
 FROM golang:1.24-alpine AS builder
+
+# Çalışma dizinini ayarla
 WORKDIR /app
-COPY . .
+
+# git'i yükle (go mod download için gerekli olabilir)
+RUN apk add --no-cache git
+
+# go.mod ve go.sum dosyalarını kopyala
+COPY go.mod go.sum ./
+# Bağımlılıkları indir
 RUN go mod download
-# Servisleri build et
-ARG SERVICE=gateway
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /build/$SERVICE ./cmd/$SERVICE
-# Seeder'ı build et
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /build/seeder ./scripts/seed.go
 
-# --- Runtime aşaması ---
+# Tüm kaynak kodunu kopyala
+COPY . .
+
+# API servisini derle. Diğer servisler (gateway vs.) için de benzer satırlar eklenebilir.
+# CGO_ENABLED=0, statik bir binary oluşturmak için önemli.
+# -o /app/api, derlenmiş çıktının adını ve yerini belirtir.
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/api ./cmd/api
+
+
+# --- 2. Aşama: Final ---
+# Minimal bir Alpine imajını temel alarak son imajı oluştur
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates curl bash postgresql-client
 
+# Çalışma dizinini ayarla
 WORKDIR /app
 
-# Copy application
-ARG SERVICE=gateway
-COPY --from=builder /build/$SERVICE /app/service
-COPY --from=builder /build/seeder /app/seeder
-RUN chmod +x /app/service /app/seeder
+# Yalnızca derlenmiş API binary'sini builder aşamasından kopyala
+COPY --from=builder /app/api .
 
-# Copy migrations and init script
-COPY migrations /app/migrations
-COPY scripts/docker-init.sh /app/init.sh
-RUN chmod +x /app/init.sh
+# Uygulamanın çalışacağı port'u dışarıya aç
+EXPOSE 8080
 
-# Install migrate tool into /app directory
-RUN M_VERSION="v4.17.1" && \
-    apk --no-cache add wget tar && \
-    wget "https://github.com/golang-migrate/migrate/releases/download/${M_VERSION}/migrate.linux-amd64.tar.gz" -O migrate.tar.gz && \
-    tar -zxvf migrate.tar.gz && \
-    mv migrate /app/migrate && \
-    rm migrate.tar.gz
-
-# Health check için curl gerekli
-EXPOSE 8080 8085
-
-# Use init script as entrypoint
-ENTRYPOINT ["/app/init.sh", "/app/service"] 
+# Konteyner başladığında çalıştırılacak komut
+# Sadece derlenmiş binary'i çalıştırır.
+CMD ["/app/api"] 

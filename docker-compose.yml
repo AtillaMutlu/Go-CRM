@@ -1,89 +1,135 @@
+version: '3.9'
+
+networks:
+  crm_network:
+    driver: bridge
+
+volumes:
+  postgres_primary_data:
+
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: crm-postgres
+  # 1. Load Balancer ve Frontend Sunucusu
+  load-balancer:
+    image: nginx:1.25
+    container_name: crm-load-balancer
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template
+      - ./public:/usr/share/nginx/html
+    ports:
+      - "3000:80"
+    environment:
+      # Ortam değişkeniyle hangi backend'in aktif olduğunu belirliyoruz.
+      # .env dosyasından okunur, eğer yoksa varsayılan 'blue_backend' olur.
+      - ACTIVE_BACKEND=${ACTIVE_COLOR:-blue}_backend
+    # Konteyner başlarken, environment değişkenini kullanarak nginx.conf dosyasını oluşturur ve nginx'i başlatır.
+    command: /bin/sh -c "envsubst '$${ACTIVE_BACKEND}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    depends_on:
+      - api-blue
+      - api-green
+    networks:
+      - crm_network
+
+  # 2. Blue Ortamı (API Servisi)
+  api-blue:
+    build: .
+    container_name: crm-api-blue
+    environment:
+      - DB_PRIMARY_URL=postgres://user:pass@postgres-primary:5432/users?sslmode=disable
+      - DB_REPLICA_URL=postgres://user:pass@postgres-replica:5432/users?sslmode=disable
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      postgres-replica:
+        condition: service_healthy # Replica'nın da sağlıklı olmasını bekle
+    networks:
+      - crm_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --proxy=off http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. Green Ortamı (API Servisi)
+  api-green:
+    build: .
+    container_name: crm-api-green
+    environment:
+      - DB_PRIMARY_URL=postgres://user:pass@postgres-primary:5432/users?sslmode=disable
+      - DB_REPLICA_URL=postgres://user:pass@postgres-replica:5432/users?sslmode=disable
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      postgres-replica:
+        condition: service_healthy # Replica'nın da sağlıklı olmasını bekle
+    networks:
+      - crm_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --proxy=off http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 4. Veritabanı Kümesi
+  # 4a. Ana (Primary) Veritabanı (Yazma işlemleri için)
+  postgres-primary:
+    image: postgres:16
+    container_name: crm-postgres-primary
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      # Özel pg_hba.conf dosyamızı konteynerin içine kopyalıyoruz.
+      - ./db/primary/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
       - POSTGRES_DB=users
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Replikasyon için gerekli ayarlar
+      - POSTGRES_HOST_AUTH_METHOD=scram-sha-256
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256
+    # Başlangıç komutu: Replikasyon ayarları ve WAL segmentlerinin saklanması
+    command: postgres -c wal_level=replica -c hot_standby=on -c max_wal_senders=10 -c wal_keep_size=512MB -c hba_file=/var/lib/postgresql/data/pg_hba.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d users"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - crm_network
 
-  # API Backend Service
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE: api
-    container_name: crm-api
-    ports:
-      - "8085:8085"
+  # 4b. Okuma Replikası Veritabanı
+  postgres-replica:
+    image: postgres:16
+    container_name: crm-postgres-replica
     environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=user
-      - DB_PASS=pass
-      - DB_NAME=users
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8085/api/login"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Gateway Service
-  gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        SERVICE: gateway
-    container_name: crm-gateway
-    ports:
-      - "8080:8080"
-    environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=user
-      - DB_PASS=pass
-      - DB_NAME=users
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Frontend (Nginx ile Static File Serving)
-  frontend:
-    image: nginx:alpine
-    container_name: crm-frontend
-    ports:
-      - "3000:80"
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=users
     volumes:
-      - ./public:/usr/share/nginx/html
-      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./db/replica/init-replica.sh:/docker-entrypoint-initdb.d/init-replica.sh
+    # Başlangıç komutu: Replica'nın da API'lerden gelen bağlantıları kabul etmesini sağlar.
+    command: >
+      sh -c "echo 'host all all 0.0.0.0/0 scram-sha-256' >> /var/lib/postgresql/data/pg_hba.conf && 
+             postgres"
     depends_on:
-      - api
-      - gateway
+      postgres-primary:
+        condition: service_healthy
+    networks:
+      - crm_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5 
 
-volumes:
-  postgres_data: 
+  # 5. Redis Servisi
+  redis:
+    image: redis:7.2-alpine
+    container_name: crm-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - crm_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5 
