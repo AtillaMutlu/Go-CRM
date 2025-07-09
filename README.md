@@ -1,126 +1,166 @@
 # Go Mikroservis Monorepo - CRM Örneği
 
-Bu repo, üretim-hazır Go tabanlı bir mikroservis iskeleti ve bu iskelet üzerine inşa edilmiş, Docker ile çalışan basit bir CRM uygulaması sunar.
+Bu proje, kurumsal seviyede, ölçeklenebilir ve sürdürülebilir Go tabanlı bir mikroservis CRM mimarisi sunar. Modern DevOps ve yazılım mimarisi standartlarına uygun olarak, Docker Compose ile yönetilen, Blue/Green deployment, Nginx load balancer, primary/replica PostgreSQL, merkezi loglama, rate limiting, cache, event publish (Kafka), Prometheus/Jaeger izleme, JWT güvenlik, Swagger/OpenAPI ve CI/CD pipeline gibi ileri seviye özellikler içerir.
 
-## Teknolojiler
-- **Backend:** Go
-- **Frontend:** HTML, CSS, Vanilla JavaScript (ES6 Modülleri)
-- **Veritabanı:** PostgreSQL
-- **API Tipi:** RESTful
-- **Containerization:** Docker & Docker Compose
-- **Web Server:** Nginx (Frontend sunumu ve API proxy için)
+## Temel Teknolojiler
+- Backend: Go (modüler mikroservis mimarisi)
+- Frontend: HTML, CSS, Vanilla JavaScript (ES6 Modülleri)
+- Veritabanı: PostgreSQL (Primary/Replica mimarisi destekli)
+- API: RESTful + gRPC (hibrit iletişim)
+- Containerization: Docker & Docker Compose
+- Web Sunucusu: Nginx (Load balancer ve reverse proxy)
+- İzleme: Prometheus, Jaeger
+- Mesajlaşma: Kafka
+- Cache & Rate Limiting: Redis
+- Loglama: Logrus (JSON format, request-id/trace-id ile)
+- Otomatik Migration: golang-migrate
+- API Dokümantasyonu: Swagger/OpenAPI
+- CI/CD: GitHub Actions
 
 ## Klasör Yapısı
 
-- `cmd/`           : Her mikroservis için ana uygulama giriş noktası (`api`, `gateway` vb.)
-- `pkg/`           : Servisler tarafından paylaşılan ortak kütüphaneler.
-- `public/`        : Dockerize edilmiş, Nginx tarafından sunulan frontend dosyaları.
-- `migrations/`    : `golang-migrate` uyumlu veritabanı şema dosyaları.
-- `scripts/`       : Yardımcı scriptler (`docker-init.sh`, `seed.go`).
-- `proto/`         : Protobuf tanımları.
-- `tests/`         : Unit, integration ve E2E testleri.
-- `docker-compose.yml`: Tüm servisleri (api, gateway, postgres, frontend) ayağa kaldıran ana dosya.
-- `Dockerfile`     : Go servislerini derleyen ve çalıştıran dosya.
-- `nginx.conf`     : Frontend'i sunan ve API gateway'e istekleri yönlendiren Nginx konfigürasyonu.
-- `Makefile`       : Proje yönetimini kolaylaştıran komutlar (`docker-up`, `docker-down`).
+- cmd/: Her mikroservis için ana uygulama giriş noktası (api, gateway, auth-svc, user-svc, notification-svc, audit-svc)
+- pkg/: Ortak kütüphaneler, protolar, yardımcılar
+- public/: Nginx tarafından sunulan frontend dosyaları
+- migrations/: Otomatik migration için SQL şema dosyaları
+- scripts/: Yardımcı scriptler (ör. seed.go)
+- proto/: Protobuf tanımları
+- tests/: Unit ve entegrasyon testleri
+- deploy/: Docker Compose, Blue/Green, Keycloak, Kafka, Redis, Prometheus, Jaeger, Grafana, vs. için YAML dosyaları
 
-## Proje Mimarisi
+## Mimarinin Temel Bileşenleri
 
-Proje, Docker Compose ile yönetilen katmanlı bir mikroservis mimarisine sahiptir. Her servis kendi konteynerinde çalışır ve belirli bir sorumluluğu yerine getirir. Temel istek akışı aşağıdaki gibidir:
+- **Nginx Load Balancer:** Tüm HTTP trafiğini karşılar, frontend dosyalarını sunar ve API isteklerini ilgili servislere yönlendirir. Blue/Green deployment ve rolling update desteği sağlar.
+- **API Gateway:** Kimlik doğrulama, rate limiting, merkezi loglama, izleme ve servisler arası yönlendirme işlevlerini üstlenir.
+- **Mikroservisler:** Her iş alanı için ayrı Go servisi (ör. auth, user, notification, audit, crm-api). Her biri bağımsız ölçeklenebilir.
+- **Veritabanı:** PostgreSQL primary/replica mimarisi ile yüksek erişilebilirlik ve performans. Okuma/yazma yükleri ayrılabilir.
+- **Redis:** Rate limiting, cache ve oturum yönetimi için kullanılır.
+- **Kafka:** Event publish/subscribe altyapısı ile servisler arası asenkron iletişim.
+- **Prometheus & Jaeger:** İzleme, metrik toplama ve distributed tracing.
+- **Loglama:** Tüm loglar JSON formatında, request-id/trace-id ile merkezi log sistemlerine uygun şekilde tutulur.
+- **Swagger/OpenAPI:** Otomatik API dokümantasyonu.
+- **CI/CD:** Otomatik test, build ve deployment pipeline’ı (GitHub Actions).
+
+## Mimari Akış (Özet)
+
+Aşağıda, projenin kurumsal mimarisini ve servisler arası veri akışını gösteren profesyonel bir şema yer almaktadır. Tüm ana bileşenler, altyapı servisleri ve veri yolları diyagramda detaylı şekilde gösterilmiştir.
 
 ```mermaid
-graph TD
-    subgraph "Kullanıcı Tarafı"
-        Browser["Kullanıcı Tarayıcısı (localhost:3000)"]
+flowchart TD
+    Kullanicilar([Kullanıcı Tarayıcısı])
+    Nginx["Nginx (Load Balancer / Reverse Proxy)"]
+    Gateway["API Gateway (Kimlik Doğrulama, Rate Limiting, Loglama, İzleme)"]
+    subgraph Mikroservisler
+        AuthSvc["Auth Servisi"]
+        UserSvc["User Servisi"]
+        NotificationSvc["Notification Servisi"]
+        AuditSvc["Audit Servisi"]
+        CrmApi["CRM API Servisi"]
+    end
+    subgraph Altyapı
+        PostgresPrimary["PostgreSQL (Primary)"]
+        PostgresReplica["PostgreSQL (Replica)"]
+        Redis["Redis (Cache & Rate Limiting)"]
+        Kafka["Kafka (Event Streaming)"]
+        Prometheus["Prometheus (Metrik İzleme)"]
+        Jaeger["Jaeger (Tracing)"]
     end
 
-    subgraph "Docker Konteyner Ortamı"
-        Nginx[("Nginx <br> Frontend Sunucusu + Reverse Proxy")]
-        
-        subgraph "Go Servisleri"
-            Gateway[("API Gateway<br><br>Gelecekte: Kimlik doğrulama, Rate Limit vb.")];
-            API[("CRM API Servisi<br><br>İş Mantığı: Müşteri, İletişim CRUD'u")];
-        end
-
-        subgraph "Veritabanı"
-            DB[("PostgreSQL Veritabanı")];
-        end
-    end
-
-    %% Akış
-    Browser -- "1. HTTP isteği" --> Nginx;
-    Nginx -- "2. Statik dosya sunar veya /api'yi yönlendirir" --> Gateway;
-    Gateway -- "3. İsteği API Servisine iletir" --> API;
-    API -- "4. Veritabanı işlemleri" --> DB;
-    DB -- "5. Sonuç" --> API;
-    API -- "6. Yanıt" --> Gateway;
-    Gateway -- "7. Yanıt" --> Nginx;
-    Nginx -- "8. Yanıt" --> Browser;
-
-style Nginx fill:#f9f,stroke:#333,stroke-width:2px
-style Gateway fill:#bbf,stroke:#333,stroke-width:2px
-style API fill:#bbf,stroke:#333,stroke-width:2px
-style DB fill:#fb9,stroke:#333,stroke-width:2px
-style Browser fill:#9cf,stroke:#333,stroke-width:2px
+    Kullanicilar -->|HTTP/HTTPS| Nginx
+    Nginx --> Gateway
+    Gateway --> AuthSvc
+    Gateway --> UserSvc
+    Gateway --> NotificationSvc
+    Gateway --> AuditSvc
+    Gateway --> CrmApi
+    CrmApi -->|CRUD| PostgresPrimary
+    CrmApi -->|Okuma| PostgresReplica
+    Gateway --> Redis
+    CrmApi --> Kafka
+    Gateway --> Prometheus
+    Gateway --> Jaeger
+    CrmApi --> Prometheus
+    CrmApi --> Jaeger
+    AuthSvc --> Redis
+    UserSvc --> Redis
+    NotificationSvc --> Kafka
+    AuditSvc --> Kafka
+    PostgresPrimary <--> PostgresReplica
+    Kafka --> AuditSvc
+    Kafka --> NotificationSvc
+    Kafka --> CrmApi
+    
+    classDef infra fill:#f9f9f9,stroke:#bbb,stroke-width:1px;
+    classDef svc fill:#e3f2fd,stroke:#2196f3,stroke-width:1px;
+    classDef db fill:#fff3e0,stroke:#fb8c00,stroke-width:1px;
+    class Nginx,Gateway svc;
+    class AuthSvc,UserSvc,NotificationSvc,AuditSvc,CrmApi svc;
+    class PostgresPrimary,PostgresReplica db;
+    class Redis,Kafka,Prometheus,Jaeger infra;
 ```
 
-### Akışın Açıklaması
+Kullanıcı → Nginx (Load Balancer) → API Gateway → Mikroservisler → PostgreSQL/Redis/Kafka → Yanıt
 
-1.  **Kullanıcı Tarayıcısı**: Tüm etkileşim `localhost:3000` üzerinden başlar.
-2.  **Nginx**: Gelen istekleri ilk karşılayan servistir.
-    *   **Frontend Sunumu**: Tarayıcının ihtiyaç duyduğu HTML, JS, CSS dosyalarını sunar.
-    *   **Reverse Proxy**: Gelen istek `/api/` ile başlıyorsa, bu isteği `API Gateway`'e yönlendirir.
-3.  **API Gateway**: Dış dünyaya açılan kapıdır. Şu anda istekleri doğrudan API servisine iletmektedir. Gelecekte kimlik doğrulama, hız limitleme gibi ortak kontroller burada yapılacaktır.
-4.  **CRM API Servisi**: Uygulamanın iş mantığının bulunduğu ana servistir. Veritabanı ile konuşur, verileri işler ve sonuçları döndürür.
-5.  **PostgreSQL**: Tüm verilerin (`users`, `customers`, `contacts`) saklandığı veritabanıdır. Docker Volume sayesinde veriler kalıcıdır.
+- Blue/Green deployment ile kesintisiz güncelleme
+- Nginx ile yük dengeleme ve SSL sonlandırma
+- API Gateway’de JWT doğrulama, rate limiting, merkezi loglama
+- Mikroservisler arası gRPC ve event publish (Kafka)
+- PostgreSQL primary/replica ile yüksek erişilebilirlik
+- Redis ile cache ve rate limiting
+- Prometheus/Jaeger ile izleme ve tracing
 
-### Hibrit API Yaklaşımı (REST & gRPC)
-
-Bu mimari hibrit bir API modelini destekler:
-
--   **REST API (Dış İletişim):** Tarayıcı gibi dış istemciler, sistemi **REST** üzerinden (JSON ile) kullanır. Bu, evrensel ve kolay bir entegrasyon sağlar.
--   **gRPC (İç İletişim):** Servislerin kendi aralarındaki iletişim için **gRPC** kullanılması hedeflenmiştir. Bu, servisler arası daha yüksek performans ve verimlilik sağlar. Proje altyapısı bu yapıya hazırdır.
-
-### Veritabanı Mimarisi (Replikasyon Hazırlığı)
-
--   **Mevcut Durum:** Geliştirme ortamında basitlik ve kaynak verimliliği için **tek bir PostgreSQL** veritabanı kullanılır. Tüm okuma ve yazma işlemleri bu veritabanına gider.
--   **Hedeflenen Mimari:** Proje, performansı artırmak için **Primary (Yazma)** ve **Read Replica (Okuma)** veritabanı modelini destekleyecek şekilde tasarlanmıştır. Bu sayede okuma ve yazma yükleri farklı sunuculara dağıtılabilir. Bu yapı, production ortamında kolayca aktif edilebilir.
-
-## Hızlı Başlangıç (Docker ile)
-
-Projenin tamamını (Backend, Frontend, Veritabanı) tek bir komutla ayağa kaldırabilirsiniz.
+## Hızlı Başlangıç
 
 **Gereksinimler:**
 - Docker
 - Docker Compose
-- `make` (Windows için `choco install make` veya [buradan](http://gnuwin32.sourceforge.net/packages/make.htm) kurulabilir)
+- make (Windows için: choco install make)
 
-### 1. Sistemi Başlatma
-Proje ana dizinindeyken terminalde aşağıdaki komutu çalıştırın:
-```sh
+### 1. Tüm Sistemi Başlatmak
+Ana dizinde:
+```
 make docker-up
 ```
-Bu komut arka planda şunları yapar:
-- Gerekli Docker imajlarını indirir ve oluşturur (Go servisleri derlenir).
-- PostgreSQL, API, Gateway ve Frontend servislerini başlatır.
-- Konteyner ilk defa başlatıldığında veritabanı tablolarını (`users`, `customers`, `contacts`) otomatik olarak oluşturur (migration).
-- `users` tablosuna örnek bir kullanıcı ekler (seeding).
+- Tüm servisler (Nginx, API Gateway, mikroservisler, PostgreSQL, Redis, Kafka, Prometheus, Jaeger) başlatılır.
+- Migration’lar otomatik uygulanır, örnek kullanıcı eklenir.
 
-### 2. Uygulamayı Kullanma
-Tarayıcınızda **http://localhost:3000** adresini açın.
+### 2. Uygulamayı Kullanmak
+Tarayıcıda http://localhost:3000 adresini açın.
+- Giriş: demo@example.com / demo123
+- Müşteri ekleme, listeleme, iletişim notu ekleme gibi işlemler yapılabilir.
 
-- **Giriş Bilgileri:**
-  - **E-posta:** `demo@example.com`
-  - **Şifre:** `demo123`
-
-Giriş yaptıktan sonra müşteri ekleyebilir, listeleyebilir ve müşterilere iletişim notları ekleyebilirsiniz.
-
-### 3. Sistemi Durdurma
-Uygulamayı kapatmak için terminalde aşağıdaki komutu çalıştırın:
-```sh
+### 3. Sistemi Durdurmak
+```
 make docker-down
 ```
-Bu komut, çalışan tüm konteynerleri durdurur ve siler. Veritabanı verileriniz bir Docker Volume'da saklandığı için kaybolmaz.
+Tüm konteynerler durur, veriler volume’da kalır.
 
 ## Migration Yönetimi
-Migration'lar (veritabanı şeması değişiklikleri) artık `make docker-up` komutu ile otomatik olarak uygulanmaktadır. Manuel bir işlem yapmanıza gerek yoktur. Yeni bir migration eklemek için `migrations/` dizinine `[versiyon]_adı.up.sql` formatında bir dosya eklemeniz yeterlidir. 
+- SQL migration dosyalarını migrations/ klasörüne ekleyin.
+- make docker-up ile migration’lar otomatik uygulanır.
+
+## Production Mimarisi ve Özellikler
+
+- Blue/Green deployment ile sıfır kesintiyle güncelleme
+- Nginx ile yük dengeleme ve SSL
+- PostgreSQL primary/replica ile yüksek erişilebilirlik
+- Redis ile rate limiting ve cache
+- Kafka ile event publish/subscribe
+- JWT ile güvenli authentication
+- Logrus ile merkezi, JSON formatında loglama
+- Prometheus ve Jaeger ile izleme ve tracing
+- Swagger/OpenAPI ile otomatik API dokümantasyonu
+- CI/CD pipeline ile otomatik test, build ve deployment
+
+## Katkı ve Geliştirme
+- Kod ve dokümantasyonda ikon, emoji veya süsleme kullanılmaz.
+- Tüm açıklamalar ve commit mesajları Türkçe olmalıdır.
+- Her modül için test ve dokümantasyon zorunludur.
+
+Daha fazla detay için:
+- DEPLOYMENT_OPERATIONS_DOCUMENTATION.md
+- API_DOCUMENTATION.md
+- GO_FUNCTIONS_DOCUMENTATION.md
+- FRONTEND_DOCUMENTATION.md
+
+Her türlü katkı ve öneri için lütfen proje kurallarına uyunuz. 
