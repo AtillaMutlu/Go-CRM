@@ -56,6 +56,18 @@ test-e2e:
 	@echo "Running end-to-end tests..."
 	go test ./tests/e2e/...
 
+test-coverage:
+	@echo "Test coverage raporu üretiliyor..."
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "coverage.html dosyasını tarayıcıda açarak detaylı raporu görebilirsiniz."
+
+coverage-badge:
+	@echo "Coverage badge (SVG) üretiliyor..."
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out | grep total: | awk '{print $$3}' | sed 's/%//' | xargs -I{} curl -s "https://img.shields.io/badge/coverage-{}%25-brightgreen.svg" -o coverage.svg
+	@echo "coverage.svg dosyası oluşturuldu. README'ye ekleyebilirsiniz."
+
 # Docker commands
 docker-up:
 	@echo "Starting all services with Docker Compose..."

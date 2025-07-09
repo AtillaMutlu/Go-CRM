@@ -1,0 +1,59 @@
+definitions:
+  main.User:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      password:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /api/login:
+    post:
+      consumes:
+      - application/json
+      description: Kullanıcı e-posta ve şifresiyle giriş yapar, JWT token döner
+      parameters:
+      - description: Giriş bilgileri
+        in: body
+        name: login
+        required: true
+        schema:
+          $ref: '#/definitions/main.User'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: JWT token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Geçersiz istek gövdesi
+          schema:
+            type: string
+        "401":
+          description: Kullanıcı adı veya şifre hatalı
+          schema:
+            type: string
+      summary: Kullanıcı girişi
+      tags:
+      - Kimlik Doğrulama
+  /healthz:
+    get:
+      description: Servisin canlı olup olmadığını kontrol eder
+      responses:
+        "200":
+          description: Servis canlı
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Healthcheck
+      tags:
+      - Genel
+swagger: "2.0"

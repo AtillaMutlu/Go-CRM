@@ -23,6 +23,7 @@ import (
 	"Go-CRM/pkg/customer"
 
 	"github.com/sirupsen/logrus"
+	httpSwagger "github.com/swaggo/http-swagger"
 	gootel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -43,6 +44,15 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// Docker secrets dosyasından gizli bilgi okuma fonksiyonu
+func readSecretFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 type User struct {
@@ -117,6 +127,12 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// healthzHandler endpoint'i için Swaggo açıklaması
+// @Summary Healthcheck
+// @Description Servisin canlı olup olmadığını kontrol eder
+// @Tags Genel
+// @Success 200 {object} map[string]string "Servis canlı"
+// @Router /healthz [get]
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -149,6 +165,14 @@ func main() {
 	logrus.SetOutput(os.Stdout)
 	logrus.SetLevel(logrus.InfoLevel)
 	var err error
+
+	// JWT secret'ı Docker secrets dosyasından oku
+	jwtSecret, err := readSecretFile("/run/secrets/jwt_secret")
+	if err != nil {
+		log.Fatal("JWT secret dosyası okunamadı: ", err)
+	}
+	jwtKey = []byte(jwtSecret)
+
 	// Ortam değişkenlerinden veritabanı URL'lerini al
 	primaryURL := os.Getenv("DB_PRIMARY_URL")
 	replicaURL := os.Getenv("DB_REPLICA_URL")
@@ -156,6 +180,15 @@ func main() {
 	if primaryURL == "" || replicaURL == "" {
 		log.Fatal("DB_PRIMARY_URL ve DB_REPLICA_URL ortam değişkenleri ayarlanmalı!")
 	}
+
+	// DB şifresini Docker secrets dosyasından oku (örnek kullanım, istersen DB URL'lerinde kullanabilirsin)
+	_, err = readSecretFile("/run/secrets/db_password")
+	if err != nil {
+		log.Println("DB password dosyası okunamadı, ortam değişkeni kullanılacak: ", err)
+	}
+	// DB URL'lerinde şifreyi dinamik olarak değiştirmek istersen:
+	// primaryURL = strings.Replace(primaryURL, "pass", dbPassword, 1)
+	// replicaURL = strings.Replace(replicaURL, "pass", dbPassword, 1)
 
 	// Primary veritabanına bağlan (Yazma işlemleri için)
 	dbPrimary, err = sql.Open("postgres", primaryURL)
@@ -197,6 +230,9 @@ func main() {
 
 	router := mux.NewRouter()
 	router.Use(requestIDMiddleware)
+
+	// Swagger UI endpoint'i (JWT korumasız, public)
+	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
 	// API rotaları
 	router.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
@@ -244,12 +280,6 @@ func main() {
 	}
 	log.Println("Kafka bağlantısı başarılı.")
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET ortam değişkeni ayarlanmalı!")
-	}
-	jwtKey = []byte(jwtSecret)
-
 	shutdown, err := initTracer()
 	if err != nil {
 		log.Fatalf("Jaeger tracer başlatılamadı: %v", err)
@@ -257,6 +287,17 @@ func main() {
 	defer shutdown()
 }
 
+// handleLogin endpoint'i için Swaggo açıklaması
+// @Summary Kullanıcı girişi
+// @Description Kullanıcı e-posta ve şifresiyle giriş yapar, JWT token döner
+// @Tags Kimlik Doğrulama
+// @Accept json
+// @Produce json
+// @Param login body User true "Giriş bilgileri"
+// @Success 200 {object} map[string]string "JWT token"
+// @Failure 400 {string} string "Geçersiz istek gövdesi"
+// @Failure 401 {string} string "Kullanıcı adı veya şifre hatalı"
+// @Router /api/login [post]
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	var creds User
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
@@ -305,6 +346,51 @@ func hashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(bytes), err
 }
+
+// Müşteri işlemleri için handler fonksiyonları customer.Handler struct'ında tanımlı, örnek açıklamalar:
+// GetCustomersHandler için:
+// @Summary Müşteri listesini getir
+// @Description Tüm müşterileri listeler
+// @Tags Müşteri
+// @Produce json
+// @Success 200 {array} Customer
+// @Failure 401 {string} string "Yetkilendirme gerekli"
+// @Router /api/customers [get]
+
+// CreateCustomerHandler için:
+// @Summary Yeni müşteri oluştur
+// @Description Yeni müşteri kaydı ekler
+// @Tags Müşteri
+// @Accept json
+// @Produce json
+// @Param customer body Customer true "Müşteri bilgileri"
+// @Success 201 {object} Customer
+// @Failure 400 {string} string "Geçersiz istek"
+// @Failure 401 {string} string "Yetkilendirme gerekli"
+// @Router /api/customers [post]
+
+// GetContactsHandler için:
+// @Summary Müşteriye ait iletişim kayıtlarını getir
+// @Description Belirli bir müşterinin iletişim kayıtlarını listeler
+// @Tags İletişim
+// @Produce json
+// @Param customerId path int true "Müşteri ID"
+// @Success 200 {array} Contact
+// @Failure 401 {string} string "Yetkilendirme gerekli"
+// @Router /api/contacts/{customerId} [get]
+
+// CreateContactHandler için:
+// @Summary Yeni iletişim kaydı oluştur
+// @Description Müşteriye yeni iletişim kaydı ekler
+// @Tags İletişim
+// @Accept json
+// @Produce json
+// @Param contact body Contact true "İletişim bilgileri"
+// @Success 201 {object} Contact
+// @Failure 400 {string} string "Geçersiz istek"
+// @Failure 401 {string} string "Yetkilendirme gerekli"
+// @Router /api/contacts [post]
+// ... mevcut kod ...
 
 // docker-init.sh script'i ve seeder.go'nun görevini üstlenen fonksiyon
 // Sadece uygulama ilk ayağa kalktığında çalıştırılmalı.

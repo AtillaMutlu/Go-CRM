@@ -7,6 +7,12 @@ networks:
 volumes:
   postgres_primary_data:
 
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  db_password:
+    file: ./secrets/db_password.txt
+
 services:
   # 1. Load Balancer ve Frontend Sunucusu
   load-balancer:
@@ -76,8 +82,7 @@ services:
     container_name: crm-postgres-primary
     volumes:
       - postgres_primary_data:/var/lib/postgresql/data
-      # Özel pg_hba.conf dosyamızı konteynerin içine kopyalıyoruz.
-      - ./db/primary/pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
+      - ./db/primary/init-primary.sh:/docker-entrypoint-initdb.d/init-primary.sh
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
@@ -86,7 +91,7 @@ services:
       - POSTGRES_HOST_AUTH_METHOD=scram-sha-256
       - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256
     # Başlangıç komutu: Replikasyon ayarları ve WAL segmentlerinin saklanması
-    command: postgres -c wal_level=replica -c hot_standby=on -c max_wal_senders=10 -c wal_keep_size=512MB -c hba_file=/var/lib/postgresql/data/pg_hba.conf
+    command: postgres -c wal_level=replica -c hot_standby=on -c max_wal_senders=10 -c wal_keep_size=512MB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user"]
       interval: 10s
@@ -105,10 +110,7 @@ services:
       - POSTGRES_DB=users
     volumes:
       - ./db/replica/init-replica.sh:/docker-entrypoint-initdb.d/init-replica.sh
-    # Başlangıç komutu: Replica'nın da API'lerden gelen bağlantıları kabul etmesini sağlar.
-    command: >
-      sh -c "echo 'host all all 0.0.0.0/0 scram-sha-256' >> /var/lib/postgresql/data/pg_hba.conf && 
-             postgres"
+    user: "999:999"  # Postgres resmi imajında postgres kullanıcısı genellikle 999 id ile gelir
     depends_on:
       postgres-primary:
         condition: service_healthy
