@@ -1,0 +1,61 @@
+version: '3.8'
+services:
+  db-blue:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    ports:
+      - "5435:5432"
+    volumes:
+      - db-blue-data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "hot_standby=on"]
+
+  db-blue-replica:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5436:5432"
+    depends_on:
+      - db-blue
+    volumes:
+      - db-blue-replica-data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "hot_standby=on"]
+
+  db-green:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    ports:
+      - "5437:5432"
+    volumes:
+      - db-green-data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "hot_standby=on"]
+
+  db-green-replica:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5438:5432"
+    depends_on:
+      - db-green
+    volumes:
+      - db-green-replica-data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "hot_standby=on"]
+
+volumes:
+  db-blue-data:
+  db-blue-replica-data:
+  db-green-data:
+  db-green-replica-data: 

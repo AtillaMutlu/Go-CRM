@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu Checkout Et
+        uses: actions/checkout@v4
+
+      - name: Go Kurulumu
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Bağımlılıkları Yükle
+        run: go mod tidy
+
+      - name: Kod Kalitesi (Lint)
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: v1.56
+
+      - name: Testleri Çalıştır
+        run: make test
+
+      - name: Docker Build (Gateway örnek)
+        run: docker build -t gateway:ci --build-arg SERVICE=gateway . 

@@ -1,0 +1,24 @@
+# Go
+/build/
+/bin/
+*.exe
+*.test
+*.out
+
+# Modüller
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker
+*.tar
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db 

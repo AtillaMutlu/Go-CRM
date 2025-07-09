@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  immudb:
+    image: codenotary/immudb:1.9.7
+    ports:
+      - "3322:3322"   # gRPC
+      - "8080:8080"   # Web UI
+    volumes:
+      - immudb-data:/var/lib/immudb
+    environment:
+      IMMUDB_ADMIN_PASSWORD: "immudbAdmin123"
+
+volumes:
+  immudb-data: 
