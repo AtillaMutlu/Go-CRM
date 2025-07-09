@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,22 +19,52 @@ var jwtSecret = []byte("supersecret") // Gerçek projede env'den al
 
 var db *sql.DB
 
+// Environment variable helper fonksiyonu
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 func main() {
 	var err error
+	
+	// Environment variables ile database konfigürasyonu
+	dbHost := getEnv("DB_HOST", "localhost")
+	dbPort := getEnv("DB_PORT", "5432")
+	dbUser := getEnv("DB_USER", "user")
+	dbPassword := getEnv("DB_PASSWORD", "pass")
+	dbName := getEnv("DB_NAME", "users")
+	
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", 
+		dbUser, dbPassword, dbHost, dbPort, dbName)
+	
+	log.Printf("Veritabanına bağlanılıyor: %s:%s/%s", dbHost, dbPort, dbName)
+	
 	// PostgreSQL bağlantısı
-	db, err = sql.Open("postgres", "postgres://user:pass@localhost:5432/users?sslmode=disable")
+	db, err = sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("DB bağlantı hatası:", err)
 	}
 	defer db.Close()
+	
+	// Bağlantıyı test et
+	if err = db.Ping(); err != nil {
+		log.Fatal("DB ping hatası:", err)
+	}
+	log.Println("Veritabanı bağlantısı başarılı!")
 
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/customers", jwtAuth(customersHandler))
 	http.HandleFunc("/api/customers/", jwtAuth(customerDetailHandler))
 	http.HandleFunc("/api/contacts", jwtAuth(contactsHandler))
 
-	fmt.Println("API servis 8085 portunda başlatıldı...")
-	log.Fatal(http.ListenAndServe(":8085", nil))
+	// Port konfigürasyonu
+	port := getEnv("PORT", "8085")
+	
+	fmt.Printf("API servis %s portunda başlatıldı...\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 // JWT doğrulama middleware
