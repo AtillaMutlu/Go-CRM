@@ -122,48 +122,23 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 // Müşteri struct'ı
 type Customer struct {
-	ID    int    `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Phone string `json:"phone"`
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	Phone     string    `json:"phone"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // /api/customers (GET, POST)
 func customersHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
-		rows, err := db.Query("SELECT id, name, email, COALESCE(phone, '') FROM customers ORDER BY id DESC")
-		if err != nil {
-			http.Error(w, "DB hatası", http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
-		var customers []Customer
-		for rows.Next() {
-			var c Customer
-			if err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone); err == nil {
-				customers = append(customers, c)
-			}
-		}
-		json.NewEncoder(w).Encode(customers)
-		return
+	switch r.Method {
+	case "GET":
+		getCustomers(w, r)
+	case "POST":
+		createCustomer(w, r)
+	default:
+		http.Error(w, "Desteklenmeyen Metot", http.StatusMethodNotAllowed)
 	}
-	if r.Method == http.MethodPost {
-		var c Customer
-		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-			http.Error(w, "Geçersiz veri", http.StatusBadRequest)
-			return
-		}
-		var id int
-		err := db.QueryRow("INSERT INTO customers (name, email, phone) VALUES ($1, $2, $3) RETURNING id", c.Name, c.Email, c.Phone).Scan(&id)
-		if err != nil {
-			http.Error(w, "DB ekleme hatası", http.StatusInternalServerError)
-			return
-		}
-		c.ID = id
-		json.NewEncoder(w).Encode(c)
-		return
-	}
-	http.Error(w, "Yöntem desteklenmiyor", http.StatusMethodNotAllowed)
 }
 
 // /api/customers/{id} (PUT, DELETE)
@@ -210,10 +185,17 @@ type Contact struct {
 
 // /api/contacts (GET)
 func contactsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case "GET":
+		getContacts(w, r)
+	case "POST":
+		createContact(w, r)
+	default:
 		http.Error(w, "Yöntem desteklenmiyor", http.StatusMethodNotAllowed)
-		return
 	}
+}
+
+func getContacts(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`SELECT c.id, cu.name, c.message, to_char(c.created_at, 'YYYY-MM-DD') FROM contacts c JOIN customers cu ON c.customer_id = cu.id ORDER BY c.id DESC`)
 	if err != nil {
 		http.Error(w, "DB hatası", http.StatusInternalServerError)
@@ -228,6 +210,86 @@ func contactsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	json.NewEncoder(w).Encode(contacts)
+}
+
+func createContact(w http.ResponseWriter, r *http.Request) {
+	var contact struct {
+		CustomerID int    `json:"customer_id"`
+		Message    string `json:"message"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&contact); err != nil {
+		http.Error(w, "Geçersiz istek verisi", http.StatusBadRequest)
+		return
+	}
+
+	if contact.CustomerID == 0 || contact.Message == "" {
+		http.Error(w, "Müşteri ID ve mesaj alanları zorunludur", http.StatusBadRequest)
+		return
+	}
+
+	var newContact Contact
+	err := db.QueryRow(
+		`INSERT INTO contacts (customer_id, message) VALUES ($1, $2) RETURNING id, (SELECT name FROM customers WHERE id = $1), message, to_char(created_at, 'YYYY-MM-DD')`,
+		contact.CustomerID, contact.Message,
+	).Scan(&newContact.ID, &newContact.CustomerName, &newContact.Message, &newContact.Date)
+
+	if err != nil {
+		log.Printf("DB contact ekleme hatasi: %v", err)
+		http.Error(w, "DB Hatasi", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(newContact)
+}
+
+func getCustomers(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, name, email, phone, created_at FROM customers ORDER BY id DESC")
+	if err != nil {
+		log.Printf("DB sorgu hatasi: %v", err)
+		http.Error(w, "DB Hatasi", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	customers := []Customer{}
+	for rows.Next() {
+		var c Customer
+		if err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.CreatedAt); err != nil {
+			log.Printf("DB satir okuma hatasi: %v", err)
+			http.Error(w, "DB Hatasi", http.StatusInternalServerError)
+			return
+		}
+		customers = append(customers, c)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(customers)
+}
+
+func createCustomer(w http.ResponseWriter, r *http.Request) {
+	var c Customer
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "Gecersiz istek", http.StatusBadRequest)
+		return
+	}
+
+	err := db.QueryRow(
+		"INSERT INTO customers (name, email, phone) VALUES ($1, $2, $3) RETURNING id, created_at",
+		c.Name, c.Email, c.Phone,
+	).Scan(&c.ID, &c.CreatedAt)
+
+	if err != nil {
+		log.Printf("DB ekleme hatasi: %v", err)
+		http.Error(w, "DB Hatasi", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(c)
 }
 
 func atoi(s string) int {

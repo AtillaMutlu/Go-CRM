@@ -3,7 +3,6 @@ package unit
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +38,7 @@ func TestHealthzHandlerMethods(t *testing.T) {
 		shouldPass bool
 	}{
 		{"GET", true},
-		{"POST", true},   // Handler tüm metodları kabul eder
+		{"POST", true}, // Handler tüm metodları kabul eder
 		{"PUT", true},
 		{"DELETE", true},
 	}
@@ -48,7 +47,7 @@ func TestHealthzHandlerMethods(t *testing.T) {
 		t.Run(tt.method, func(t *testing.T) {
 			req, _ := http.NewRequest(tt.method, "/healthz", nil)
 			rr := httptest.NewRecorder()
-			
+
 			handler := http.HandlerFunc(gateway.HealthzHandler)
 			handler.ServeHTTP(rr, req)
 
@@ -62,7 +61,7 @@ func TestHealthzHandlerMethods(t *testing.T) {
 // Benchmark test
 func BenchmarkHealthzHandler(b *testing.B) {
 	req, _ := http.NewRequest("GET", "/healthz", nil)
-	
+
 	for i := 0; i < b.N; i++ {
 		rr := httptest.NewRecorder()
 		handler := http.HandlerFunc(gateway.HealthzHandler)
@@ -74,17 +73,17 @@ func BenchmarkHealthzHandler(b *testing.B) {
 func TestRateLimitSimulation(t *testing.T) {
 	// Bu test rate limiting logic'ini simulate eder
 	// Gerçek implementation eklenince genişletilecek
-	
+
 	requests := 15 // Rate limit 10'dan fazla
 	successCount := 0
-	
+
 	for i := 0; i < requests; i++ {
 		// Simulate rate limit check
 		if i < 10 {
 			successCount++
 		}
 	}
-	
+
 	if successCount != 10 {
 		t.Errorf("Rate limit testi başarısız: %v başarılı istek, beklenen: 10", successCount)
 	}
@@ -93,24 +92,24 @@ func TestRateLimitSimulation(t *testing.T) {
 // Concurrent access test
 func TestHealthzConcurrency(t *testing.T) {
 	handler := http.HandlerFunc(gateway.HealthzHandler)
-	
+
 	// 100 concurrent request
 	concurrency := 100
 	done := make(chan bool, concurrency)
-	
+
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			req, _ := http.NewRequest("GET", "/healthz", nil)
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
-			
+
 			if rr.Code != http.StatusOK {
 				t.Errorf("Concurrent test başarısız: status %v", rr.Code)
 			}
 			done <- true
 		}()
 	}
-	
+
 	// Tüm goroutine'lerin bitmesini bekle
 	for i := 0; i < concurrency; i++ {
 		select {
@@ -119,4 +118,4 @@ func TestHealthzConcurrency(t *testing.T) {
 			t.Fatal("Concurrent test timeout")
 		}
 	}
-} 
+}

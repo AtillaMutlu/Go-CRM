@@ -41,6 +41,14 @@ export async function deleteCustomer(id) {
 }
 
 // İletişim işlemleri
+export async function addContact(data) {
+  return apiRequest('/contacts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
 export async function getContacts() {
   return apiRequest('/contacts');
 } 

@@ -1,4 +1,4 @@
-import { getCustomers, addCustomer, updateCustomer, deleteCustomer, getContacts } from './api.js';
+import { getCustomers, addCustomer, updateCustomer, deleteCustomer, getContacts, addContact } from './api.js';
 
 // Token yoksa login'e yönlendir
 if (!localStorage.getItem('token')) {
@@ -14,6 +14,8 @@ document.getElementById('logoutBtn').onclick = function() {
 const customerTableBody = document.querySelector('#customerTable tbody');
 const customerForm = document.getElementById('customerForm');
 const customerModal = new bootstrap.Modal(document.getElementById('customerModal'));
+const contactModal = new bootstrap.Modal(document.getElementById('contactModal'));
+const contactForm = document.getElementById('contactForm');
 
 let editingId = null;
 
@@ -29,6 +31,7 @@ async function loadCustomers() {
         <td>${c.email}</td>
         <td>${c.phone || ''}</td>
         <td>
+          <button class="btn btn-sm btn-info" onclick="addContactHandler('${c.id}')">İletişim Ekle</button>
           <button class="btn btn-sm btn-warning me-1" onclick="editCustomer('${c.id}')">Düzenle</button>
           <button class="btn btn-sm btn-danger" onclick="deleteCustomerHandler('${c.id}')">Sil</button>
         </td>
@@ -58,6 +61,31 @@ window.deleteCustomerHandler = async function(id) {
   if (!confirm('Silmek istediğine emin misin?')) return;
   await deleteCustomer(id);
   loadCustomers();
+};
+
+window.addContactHandler = function(customerId) {
+  contactForm.reset();
+  document.getElementById('contactCustomerId').value = customerId;
+  contactModal.show();
+};
+
+contactForm.onsubmit = async function(e) {
+  e.preventDefault();
+  const customer_id = parseInt(document.getElementById('contactCustomerId').value, 10);
+  const message = document.getElementById('contactMessage').value;
+  
+  try {
+    await addContact({ customer_id, message });
+    contactModal.hide();
+    // İletişimler sekmesini aktif hale getir ve listeyi yenile
+    const contactTab = document.querySelector('a[href="#contacts"]');
+    if(contactTab) {
+      new bootstrap.Tab(contactTab).show();
+      loadContacts();
+    }
+  } catch (err) {
+    alert('Hata: ' + err.message);
+  }
 };
 
 customerForm.onsubmit = async function(e) {
@@ -90,15 +118,18 @@ async function loadContacts() {
   try {
     const contacts = await getContacts();
     contactTableBody.innerHTML = '';
-    contacts.forEach(c => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${c.customer_name}</td>
-        <td>${c.message}</td>
-        <td>${c.date}</td>
-      `;
-      contactTableBody.appendChild(tr);
-    });
+    // Gelen veri null değilse ve bir dizi ise döngüye gir
+    if (contacts && Array.isArray(contacts)) {
+      contacts.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${c.customer_name}</td>
+          <td>${c.message}</td>
+          <td>${c.date}</td>
+        `;
+        contactTableBody.appendChild(tr);
+      });
+    }
   } catch (err) {
     contactTableBody.innerHTML = `<tr><td colspan="3">${err.message}</td></tr>`;
   }

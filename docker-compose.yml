@@ -1,19 +1,19 @@
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: crm-postgres
     environment:
-      POSTGRES_DB: users
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_DB=users
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d users"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
 
@@ -31,7 +31,7 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=user
-      - DB_PASSWORD=pass
+      - DB_PASS=pass
       - DB_NAME=users
     depends_on:
       postgres:
@@ -52,6 +52,15 @@ services:
     container_name: crm-gateway
     ports:
       - "8080:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=user
+      - DB_PASS=pass
+      - DB_NAME=users
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s

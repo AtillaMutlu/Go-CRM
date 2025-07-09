@@ -6,7 +6,8 @@ import (
 	"log"
 	"net"
 
-	"github.com/your-org/your-monorepo/pkg/userpb"
+	"Go-CRM/pkg/userpb"
+
 	"google.golang.org/grpc"
 )
 

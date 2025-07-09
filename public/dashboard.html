@@ -34,7 +34,7 @@
               <th>Ad Soyad</th>
               <th>Email</th>
               <th>Telefon</th>
-              <th>İşlem</th>
+              <th style="width: 220px;">İşlem</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -89,8 +89,33 @@
     </div>
   </div>
 
+  <!-- İletişim Ekle Modal -->
+  <div class="modal fade" id="contactModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="contactForm">
+          <div class="modal-header">
+            <h5 class="modal-title" id="contactModalLabel">İletişim Ekle</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="contactCustomerId">
+            <div class="mb-3">
+              <label for="contactMessage" class="form-label">Mesaj</label>
+              <textarea class="form-control" id="contactMessage" rows="4" required></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+            <button type="submit" class="btn btn-primary">Kaydet</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/dashboard.js"></script>
+  <script type="module" src="js/api.js"></script>
+  <script type="module" src="js/dashboard.js"></script>
 </body>
 </html> 

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -22,12 +21,12 @@ func setupTestDB() (*sql.DB, error) {
 	if dbURL == "" {
 		dbURL = "postgres://user:pass@localhost:5432/users_test?sslmode=disable"
 	}
-	
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Test tabloları oluştur
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
@@ -53,7 +52,7 @@ func setupTestDB() (*sql.DB, error) {
 			created_at TIMESTAMP DEFAULT now()
 		);
 	`)
-	
+
 	return db, err
 }
 
@@ -72,10 +71,10 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	defer testDB.Close()
-	
+
 	// Test'leri çalıştır
 	code := m.Run()
-	
+
 	// Cleanup
 	cleanupTestDB(testDB)
 	os.Exit(code)
@@ -89,16 +88,14 @@ func TestCustomerCRUD(t *testing.T) {
 		"email": "test@example.com",
 		"phone": "+90123456789",
 	}
-	
+
 	// CREATE test
 	t.Run("CreateCustomer", func(t *testing.T) {
 		jsonData, _ := json.Marshal(customer)
 		req := httptest.NewRequest("POST", "/api/customers", bytes.NewBuffer(jsonData))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer valid-test-token") // Mock JWT
-		
-		rr := httptest.NewRecorder()
-		
+
 		// Bu kısımda actual API handler'ını çağırabilirsin
 		// Şimdilik DB'ye direkt yazıyoruz
 		var id int
@@ -106,18 +103,18 @@ func TestCustomerCRUD(t *testing.T) {
 			INSERT INTO customers (name, email, phone) 
 			VALUES ($1, $2, $3) RETURNING id
 		`, customer["name"], customer["email"], customer["phone"]).Scan(&id)
-		
+
 		if err != nil {
 			t.Fatalf("Customer oluşturulamadı: %v", err)
 		}
-		
+
 		if id == 0 {
 			t.Fatal("Customer ID alınamadı")
 		}
-		
+
 		t.Logf("✅ Customer oluşturuldu, ID: %d", id)
 	})
-	
+
 	// READ test
 	t.Run("GetCustomers", func(t *testing.T) {
 		rows, err := testDB.Query("SELECT id, name, email, COALESCE(phone, '') FROM customers")
@@ -125,7 +122,7 @@ func TestCustomerCRUD(t *testing.T) {
 			t.Fatalf("Customer listesi alınamadı: %v", err)
 		}
 		defer rows.Close()
-		
+
 		customers := []map[string]interface{}{}
 		for rows.Next() {
 			var id int
@@ -136,14 +133,14 @@ func TestCustomerCRUD(t *testing.T) {
 				})
 			}
 		}
-		
+
 		if len(customers) == 0 {
 			t.Fatal("Customer listesi boş")
 		}
-		
+
 		t.Logf("✅ %d customer bulundu", len(customers))
 	})
-	
+
 	// UPDATE test
 	t.Run("UpdateCustomer", func(t *testing.T) {
 		// Önce bir customer bul
@@ -152,31 +149,31 @@ func TestCustomerCRUD(t *testing.T) {
 		if err != nil {
 			t.Skip("Update testi için customer bulunamadı")
 		}
-		
+
 		updatedData := map[string]interface{}{
 			"name":  "Güncellenmiş Müşteri",
 			"email": "updated@example.com",
 			"phone": "+90987654321",
 		}
-		
+
 		_, err = testDB.Exec(`
 			UPDATE customers SET name=$1, email=$2, phone=$3 WHERE id=$4
 		`, updatedData["name"], updatedData["email"], updatedData["phone"], customerID)
-		
+
 		if err != nil {
 			t.Fatalf("Customer güncellenemedi: %v", err)
 		}
-		
+
 		// Güncellemeyi doğrula
 		var name string
 		err = testDB.QueryRow("SELECT name FROM customers WHERE id=$1", customerID).Scan(&name)
 		if err != nil || name != updatedData["name"] {
 			t.Fatalf("Customer güncelleme doğrulanamadı: %v", err)
 		}
-		
+
 		t.Logf("✅ Customer güncellendi, ID: %d", customerID)
 	})
-	
+
 	// DELETE test
 	t.Run("DeleteCustomer", func(t *testing.T) {
 		// Test customer oluştur
@@ -189,18 +186,18 @@ func TestCustomerCRUD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Test customer oluşturulamadı: %v", err)
 		}
-		
+
 		// Customer'ı sil
 		result, err := testDB.Exec("DELETE FROM customers WHERE id=$1", customerID)
 		if err != nil {
 			t.Fatalf("Customer silinemedi: %v", err)
 		}
-		
+
 		rowsAffected, _ := result.RowsAffected()
 		if rowsAffected != 1 {
 			t.Fatalf("Beklenmeyen silme sonucu: %d satır etkilendi", rowsAffected)
 		}
-		
+
 		t.Logf("✅ Customer silindi, ID: %d", customerID)
 	})
 }
@@ -216,39 +213,39 @@ func TestLoginIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Test user oluşturulamadı: %v", err)
 	}
-	
+
 	// Login testi
 	t.Run("ValidLogin", func(t *testing.T) {
 		var email, passwordHash string
 		err := testDB.QueryRow(`
 			SELECT email, password_hash FROM users WHERE email=$1
 		`, "test@example.com").Scan(&email, &passwordHash)
-		
+
 		if err != nil {
 			t.Fatalf("User bulunamadı: %v", err)
 		}
-		
+
 		if email != "test@example.com" {
 			t.Fatalf("Yanlış email: %v", email)
 		}
-		
+
 		t.Logf("✅ Login testi başarılı: %s", email)
 	})
-	
+
 	t.Run("InvalidLogin", func(t *testing.T) {
 		var count int
 		err := testDB.QueryRow(`
 			SELECT COUNT(*) FROM users WHERE email=$1
 		`, "nonexistent@example.com").Scan(&count)
-		
+
 		if err != nil {
 			t.Fatalf("DB sorgu hatası: %v", err)
 		}
-		
+
 		if count != 0 {
 			t.Fatal("Var olmayan user bulundu!")
 		}
-		
+
 		t.Log("✅ Invalid login testi başarılı")
 	})
 }
@@ -259,7 +256,7 @@ func TestDatabaseConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Database bağlantısı başarısız: %v", err)
 	}
-	
+
 	t.Log("✅ Database bağlantısı başarılı")
 }
 
@@ -269,7 +266,7 @@ func TestTransactionRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Transaction başlatılamadı: %v", err)
 	}
-	
+
 	// Test data ekle
 	_, err = tx.Exec(`
 		INSERT INTO customers (name, email, phone) 
@@ -278,23 +275,23 @@ func TestTransactionRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Transaction insert hatası: %v", err)
 	}
-	
+
 	// Rollback yap
 	err = tx.Rollback()
 	if err != nil {
 		t.Fatalf("Transaction rollback hatası: %v", err)
 	}
-	
+
 	// Data'nın eklenmediğini doğrula
 	var count int
 	err = testDB.QueryRow("SELECT COUNT(*) FROM customers WHERE email='tx@example.com'").Scan(&count)
 	if err != nil {
 		t.Fatalf("Rollback doğrulama hatası: %v", err)
 	}
-	
+
 	if count != 0 {
 		t.Fatal("Transaction rollback çalışmadı!")
 	}
-	
+
 	t.Log("✅ Transaction rollback testi başarılı")
-} 
+}

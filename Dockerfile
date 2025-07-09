@@ -26,14 +26,13 @@ COPY migrations /app/migrations
 COPY scripts/docker-init.sh /app/init.sh
 RUN chmod +x /app/init.sh
 
-# Install migrate tool by downloading binary
+# Install migrate tool into /app directory
 RUN M_VERSION="v4.17.1" && \
-    apk --no-cache add wget && \
+    apk --no-cache add wget tar && \
     wget "https://github.com/golang-migrate/migrate/releases/download/${M_VERSION}/migrate.linux-amd64.tar.gz" -O migrate.tar.gz && \
-    tar -xvf migrate.tar.gz && \
-    mv migrate /usr/local/bin/migrate && \
-    rm migrate.tar.gz && \
-    apk del wget
+    tar -zxvf migrate.tar.gz && \
+    mv migrate /app/migrate && \
+    rm migrate.tar.gz
 
 # Health check için curl gerekli
 EXPOSE 8080 8085

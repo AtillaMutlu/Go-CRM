@@ -1,6 +1,6 @@
-module github.com/your-org/your-monorepo
+module Go-CRM
 
-go 1.24.5
+go 1.24
 
 require (
 	github.com/MicahParks/keyfunc v1.9.0 // indirect
