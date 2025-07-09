@@ -24,6 +24,68 @@ Bu repo, üretim-hazır Go tabanlı bir mikroservis iskeleti ve bu iskelet üzer
 - `nginx.conf`     : Frontend'i sunan ve API gateway'e istekleri yönlendiren Nginx konfigürasyonu.
 - `Makefile`       : Proje yönetimini kolaylaştıran komutlar (`docker-up`, `docker-down`).
 
+## Proje Mimarisi
+
+Proje, Docker Compose ile yönetilen katmanlı bir mikroservis mimarisine sahiptir. Her servis kendi konteynerinde çalışır ve belirli bir sorumluluğu yerine getirir. Temel istek akışı aşağıdaki gibidir:
+
+```mermaid
+graph TD
+    subgraph "Kullanıcı Tarafı"
+        Browser["Kullanıcı Tarayıcısı (localhost:3000)"]
+    end
+
+    subgraph "Docker Konteyner Ortamı"
+        Nginx[("Nginx <br> Frontend Sunucusu + Reverse Proxy")]
+        
+        subgraph "Go Servisleri"
+            Gateway[("API Gateway<br><br>Gelecekte: Kimlik doğrulama, Rate Limit vb.")];
+            API[("CRM API Servisi<br><br>İş Mantığı: Müşteri, İletişim CRUD'u")];
+        end
+
+        subgraph "Veritabanı"
+            DB[("PostgreSQL Veritabanı")];
+        end
+    end
+
+    %% Akış
+    Browser -- "1. HTTP isteği" --> Nginx;
+    Nginx -- "2. Statik dosya sunar veya /api'yi yönlendirir" --> Gateway;
+    Gateway -- "3. İsteği API Servisine iletir" --> API;
+    API -- "4. Veritabanı işlemleri" --> DB;
+    DB -- "5. Sonuç" --> API;
+    API -- "6. Yanıt" --> Gateway;
+    Gateway -- "7. Yanıt" --> Nginx;
+    Nginx -- "8. Yanıt" --> Browser;
+
+style Nginx fill:#f9f,stroke:#333,stroke-width:2px
+style Gateway fill:#bbf,stroke:#333,stroke-width:2px
+style API fill:#bbf,stroke:#333,stroke-width:2px
+style DB fill:#fb9,stroke:#333,stroke-width:2px
+style Browser fill:#9cf,stroke:#333,stroke-width:2px
+```
+
+### Akışın Açıklaması
+
+1.  **Kullanıcı Tarayıcısı**: Tüm etkileşim `localhost:3000` üzerinden başlar.
+2.  **Nginx**: Gelen istekleri ilk karşılayan servistir.
+    *   **Frontend Sunumu**: Tarayıcının ihtiyaç duyduğu HTML, JS, CSS dosyalarını sunar.
+    *   **Reverse Proxy**: Gelen istek `/api/` ile başlıyorsa, bu isteği `API Gateway`'e yönlendirir.
+3.  **API Gateway**: Dış dünyaya açılan kapıdır. Şu anda istekleri doğrudan API servisine iletmektedir. Gelecekte kimlik doğrulama, hız limitleme gibi ortak kontroller burada yapılacaktır.
+4.  **CRM API Servisi**: Uygulamanın iş mantığının bulunduğu ana servistir. Veritabanı ile konuşur, verileri işler ve sonuçları döndürür.
+5.  **PostgreSQL**: Tüm verilerin (`users`, `customers`, `contacts`) saklandığı veritabanıdır. Docker Volume sayesinde veriler kalıcıdır.
+
+### Hibrit API Yaklaşımı (REST & gRPC)
+
+Bu mimari hibrit bir API modelini destekler:
+
+-   **REST API (Dış İletişim):** Tarayıcı gibi dış istemciler, sistemi **REST** üzerinden (JSON ile) kullanır. Bu, evrensel ve kolay bir entegrasyon sağlar.
+-   **gRPC (İç İletişim):** Servislerin kendi aralarındaki iletişim için **gRPC** kullanılması hedeflenmiştir. Bu, servisler arası daha yüksek performans ve verimlilik sağlar. Proje altyapısı bu yapıya hazırdır.
+
+### Veritabanı Mimarisi (Replikasyon Hazırlığı)
+
+-   **Mevcut Durum:** Geliştirme ortamında basitlik ve kaynak verimliliği için **tek bir PostgreSQL** veritabanı kullanılır. Tüm okuma ve yazma işlemleri bu veritabanına gider.
+-   **Hedeflenen Mimari:** Proje, performansı artırmak için **Primary (Yazma)** ve **Read Replica (Okuma)** veritabanı modelini destekleyecek şekilde tasarlanmıştır. Bu sayede okuma ve yazma yükleri farklı sunuculara dağıtılabilir. Bu yapı, production ortamında kolayca aktif edilebilir.
+
 ## Hızlı Başlangıç (Docker ile)
 
 Projenin tamamını (Backend, Frontend, Veritabanı) tek bir komutla ayağa kaldırabilirsiniz.

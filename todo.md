@@ -1,6 +1,6 @@
 # Proje Durumu ve Geliştirilecekler
 
-## ✅ Yapılanlar
+## Yapılanlar
 
 - **Mimari ve Altyapı**
   - Docker Compose ile tüm projenin (API, Gateway, Frontend, DB) tek komutla (`make docker-up`) çalıştırılması.
@@ -25,7 +25,7 @@
   - Unit ve entegrasyon testleri için temel yapı (`/tests` klasörü).
   - `Makefile` üzerinden testleri çalıştırmak için komutlar (`test-unit`, `test-integration`).
 
-## 🛠️ Sırada Geliştirilecekler
+## Sırada Geliştirilecekler
 
 - **Kimlik Doğrulama (Authentication)**
   - Gateway'de devre dışı bırakılan JWT/JWKS doğrulamasının düzgün bir şekilde yeniden etkinleştirilmesi.

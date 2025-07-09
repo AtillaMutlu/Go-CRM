@@ -2,7 +2,7 @@
 
 Bu dokümantasyon, projenin test stratejisini ve testlerin nasıl çalıştırılacağını açıklar.
 
-## 🚀 Hızlı Başlangıç
+## Hızlı Başlangıç
 
 Projedeki testler, host makineniz (bilgisayarınız) üzerinde çalıştırılacak şekilde tasarlanmıştır. Ancak, entegrasyon testleri gibi bazı testler, çalışan bir veritabanına ihtiyaç duyar.
 
@@ -41,7 +41,7 @@ Veritabanı çalışırken, **yeni bir terminal açın** ve aşağıdaki `make` 
   make test-e2e
   ```
 
-## 🏗️ Test Mimarisi
+## Test Mimarisi
 
 Projemizde 3 temel test katmanı bulunmaktadır:
 
@@ -49,7 +49,7 @@ Projemizde 3 temel test katmanı bulunmaktadır:
 - **Entegrasyon Testleri:** Servislerin birbiriyle (özellikle API ve veritabanı) doğru şekilde entegre olup olmadığını test eder. (bkz: `tests/integration/`)
 - **End-to-End (E2E) Testleri:** Tam bir kullanıcı senaryosunu baştan sona test eder. (bkz: `tests/e2e/`)
 
-## 🔧 Sorun Giderme
+## Sorun Giderme
 
 **Hata: `connection refused`**
 - **Çözüm:** `make docker-up` komutunu çalıştırdığınızdan ve veritabanı konteynerinin sağlıklı bir şekilde başladığından emin olun. `docker ps` komutu ile `crm-postgres` konteynerinin "healthy" durumda olduğunu kontrol edebilirsiniz.
